@@ -1,0 +1,27 @@
+n random m length sequences where each m-length sequence will behave as an element of the tensor
+
+the key is to figue out these covariance factos and see how they compae with the actual
+
+volume traded should be a function of the expected next price, assuming that insider trading is 
+at play
+
+volume traded will be based on market sentiment, but, it will keep track of past two time steps
+and another of past 10 time steps, if the price has increased in the past 10, but decreased in past 2,
+people are likely to sell.
+
+on the othe hand, if price has decreased in past 10, but increased in past 2, people ae likely to buy.
+when people are likely to buy, increase the next price futher by a small weight.
+
+but, also sell, if there is another very fast rising stock, even though this stock also rose
+
+so, like stock_a rose gradually by 5%, and all others also gradually rose, 
+but one stock made a reversal in 2 consecutive timesteps, so the ones making the reversals,
+would gain volume, in the proportion of their gains, and the ones .
+
+another thing to note is the price. more people are likely to buy more volume of a
+cheaper stock with the same rate of incease.
+
+simulating the volume traded will be the real tricky part
+
+also consider updating the gradients in the middle, to see how the model 
+adapts

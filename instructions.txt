@@ -1,0 +1,13 @@
+source v2env/bin/activate
+
+psql -U traderadmin -d traderdb
+
+DROP DATABASE traderdb;
+DROP USER traderadmin;
+
+CREATE DATABASE traderdb;
+CREATE USER traderadmin WITH PASSWORD 'i4n6s9l1y';
+ALTER ROLE traderadmin SET client_encoding TO 'utf8';
+ALTER ROLE traderadmin SET default_transaction_isolation TO 'read committed';
+ALTER ROLE traderadmin SET timezone TO 'UTC';
+GRANT ALL PRIVILEGES ON DATABASE traderdb TO traderadmin;
