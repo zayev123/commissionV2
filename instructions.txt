@@ -11,3 +11,8 @@ ALTER ROLE traderadmin SET client_encoding TO 'utf8';
 ALTER ROLE traderadmin SET default_transaction_isolation TO 'read committed';
 ALTER ROLE traderadmin SET timezone TO 'UTC';
 GRANT ALL PRIVILEGES ON DATABASE traderdb TO traderadmin;
+
+git remote set-url origin https://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@github.com/zayev123/commissionV2.git
+
+pip freeze > requirements.txt
+pip install -r requirements.txt

@@ -88,7 +88,7 @@ class CommoditySimulator:
 
             price_diff = next_grad_price - curr_price
             perc_diff = price_diff/curr_price
-            # print(cmmdty.name, curr_price, gradient, next_grad_price, perc_diff)
+            # print(f"{cmmdty.id}, {cmmdty.name}", curr_price, gradient, next_grad_price, perc_diff)
             if cmmdty.id not in self.affected_commodities:
                 self.affected_commodities[cmmdty.id] = {}
             
@@ -117,17 +117,20 @@ class CommoditySimulator:
             updated_cmmdties.append(cmmdty)
             grad_commodities.append({
                 "obj": cmmdty,
-                "next_grad_price": next_grad_price
+                "next_grad_price": next_grad_price,
+                "original_price": curr_price
             })
 
         # print(json.dumps(self.affected_commodities, indent=3))
+        # print(grad_commodities)
         next_snapshots: list[SimulatedCommodityBuffer] = []
         for a_cmmdty_data in grad_commodities:
             a_cmmdty: SimulatedCommodity = a_cmmdty_data["obj"]
             next_price = a_cmmdty_data["next_grad_price"]
+            set_price = a_cmmdty_data["original_price"]
             extra_effects = self.affected_commodities[a_cmmdty.id]
             for an_id, price_effect in extra_effects.items():
-                next_price = next_price + price_effect*next_price
+                next_price = next_price + price_effect*set_price
 
             next_snapshots.append(
                 SimulatedCommodityBuffer(

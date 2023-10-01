@@ -13,8 +13,8 @@ class SimulatedStock(models.Model):
     avg_backward_steps = models.IntegerField(blank=True, null=True)
     price_steps_left = models.IntegerField(blank=True, null=True)
     volume_sd = models.FloatField(blank=True, null=True)
-    volume_x_price_factor = models.FloatField(blank=True, null=True)
     price_x_volume_factor = models.FloatField(blank=True, null=True)
+    volume_x_price_factor = models.FloatField(blank=True, null=True)
 
     def __str__(self):
         return f"{str(self.id)}, " + str(self.index) + ', ' + str(self.name)

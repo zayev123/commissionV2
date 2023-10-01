@@ -6,7 +6,8 @@ from apps.environment_simulator.models import (
     SimulatedSector, 
     SimulatedStock,
     SimulatedStockCovariance,
-    SimulatedStockBuffer
+    SimulatedStockBuffer,
+    SimulatedStockXCommodity
 )
 
 # Register your models here.
@@ -100,3 +101,13 @@ class SimulatedStockBufferAdmin(admin.ModelAdmin):
         'volume'
     ]
     search_fields = ['stock__name', 'captured_at']
+
+@admin.register(SimulatedStockXCommodity)
+class SimulatedStockXCommodityAdmin(admin.ModelAdmin):
+    list_display = [
+        'stock', 
+        'commodity', 
+        'factor', 
+        'id', 
+    ]
+    search_fields = ['stock__name', 'commodity__name']
