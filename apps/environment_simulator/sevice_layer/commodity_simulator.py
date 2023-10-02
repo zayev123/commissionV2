@@ -9,6 +9,18 @@ from datetime import datetime
 from django.db.models import Q
 import random
 
+
+# "original": set_price,
+#                     "new": next_price,
+#                     "change": change,
+#                     "perc_change": perc_diff
+class CommodityVaryData:
+    def __init__(self, original_pice, next_price):
+        self.original_pice = original_pice
+        self.next_price = next_price
+        self.change = original_pice - next_price
+        self.perc_change = self.change/original_pice
+
 class CommoditySimulator:
     def __init__(self, latest_time_step: datetime, next_time_step: datetime):
         self.eps = 0.3
@@ -45,6 +57,8 @@ class CommoditySimulator:
         for z_cmmdty in self.commodities:
             cmmdty_ids.append(z_cmmdty.id)
         
+        self.most_latest_capture = SimulatedCommodityBuffer.objects.order_by('-captured_at').first()
+        
         latest_captures = SimulatedCommodityBuffer.objects.filter(
             Q(commodity_id__in = cmmdty_ids)
             & Q (captured_at = latest_time_step)
@@ -65,6 +79,8 @@ class CommoditySimulator:
 
 
     def vary_commodity_prices(self):
+        if self.next_time_step < self.most_latest_capture.captured_at:
+            return {}
         updated_cmmdties = []
         grad_commodities: list[SimulatedCommodity] = []
         for cmmdty in self.commodities:
@@ -124,6 +140,7 @@ class CommoditySimulator:
         # print(json.dumps(self.affected_commodities, indent=3))
         # print(grad_commodities)
         next_snapshots: list[SimulatedCommodityBuffer] = []
+        cmmdty_vary_data = {}
         for a_cmmdty_data in grad_commodities:
             a_cmmdty: SimulatedCommodity = a_cmmdty_data["obj"]
             next_price = a_cmmdty_data["next_grad_price"]
@@ -139,12 +156,14 @@ class CommoditySimulator:
                     price_snapshot = next_price
                 )
             )
+            if a_cmmdty.id not in cmmdty_vary_data:
+                cmmdty_vary_data[a_cmmdty.id] = CommodityVaryData(set_price, next_price)
         un_accounted_for_cmmdties = []
         for unaccntd_cmmdty in updated_cmmdties:
             if unaccntd_cmmdty.id not in self.next_buffer:
                 un_accounted_for_cmmdties.append(unaccntd_cmmdty)
         
-        un_accounted_for_snpshts = []
+        un_accounted_for_snpshts: list[SimulatedCommodityBuffer] = []
         for snpsht in next_snapshots:
             if snpsht.commodity_id not in self.next_buffer:
                 un_accounted_for_snpshts.append(snpsht)
@@ -154,5 +173,9 @@ class CommoditySimulator:
             'gradient', 
         ])
         SimulatedCommodityBuffer.objects.bulk_create(un_accounted_for_snpshts)
+
+
+
+        return cmmdty_vary_data
                 
 

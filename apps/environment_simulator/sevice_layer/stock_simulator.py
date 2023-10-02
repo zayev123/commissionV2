@@ -3,24 +3,31 @@ from apps.environment_simulator.models import (
     SimulatedStock,
     SimulatedStockCovariance,
     SimulatedStockBuffer,
-    SimulatedStockXCommodity
+    SimulatedStockXCommodity,
 )
+from apps.environment_simulator.models.simulated_commodity import SimulatedCommodityBuffer
+from apps.environment_simulator.sevice_layer.commodity_simulator import CommoditySimulator, CommodityVaryData
 import numpy as np
 from datetime import datetime
 from django.db.models import Q
 import random
 
+
+
 class StockSimulator:
-    def __init__(self, latest_time_step: datetime, next_time_step: datetime):
+    def __init__(self, latest_time_step: datetime, next_time_step: datetime, is_coupled = False):
         self.eps = 0.3
         self.stocks = SimulatedStock.objects.all()
         self.stocks = list(self.stocks)
         self.no_of_stocks = len(list(self.stocks))
         self.stocks_covariances: list[SimulatedStockCovariance] = SimulatedStockCovariance.objects.all()
+        self.stock_x_commodities: list[SimulatedStockXCommodity] = SimulatedStockXCommodity.objects.all()
         self.stocks = random.sample(self.stocks, self.no_of_stocks)
+        self.is_coupled = is_coupled
 
         self.affected_stocks = {}
         self.covariances_data = {}
+        self.latest_time_step = latest_time_step
         self.next_time_step = next_time_step
 
         for a_covar in self.stocks_covariances:
@@ -64,7 +71,39 @@ class StockSimulator:
         for capt in latest_captures:
             self.mem_buffer[capt.stock_id] = capt
 
+        self.varied_stck_x_cmmdts_dict = {}
+        self.cmmdts_x_stcks_covars = {}
+        # for xstcm_var in self.stock_x_commodities:
+        #     if xstcm_var.stock.id not in self.stcks_x_cmmdts_covars:
+        #         self.stcks_x_cmmdts_covars[xstcm_var.stock.id] = {}
+        #     stck_x_cmmdts_covars = self.stcks_x_cmmdts_covars[xstcm_var.stock.id]
+        #     if xstcm_var.commodity.id not in stck_x_cmmdts_covars:
+        #         stck_x_cmmdts_covars[xstcm_var.commodity.id] = xstcm_var.factor
+
+        for xcmst_var in self.stock_x_commodities:
+            if xcmst_var.commodity.id not in self.cmmdts_x_stcks_covars:
+                self.cmmdts_x_stcks_covars[xcmst_var.commodity.id] = {}
+            cmmdt_x_stcks_covars = self.cmmdts_x_stcks_covars[xcmst_var.commodity.id]
+            if xcmst_var.stock.id not in cmmdt_x_stcks_covars:
+                cmmdt_x_stcks_covars[xcmst_var.stock.id] = xcmst_var.factor
+
     def vary_stock_prices(self):
+        if self.is_coupled:
+            cmmdty_sims = CommoditySimulator(self.latest_time_step, self.next_time_step)
+            varied_cmmdts: dict[int, CommodityVaryData] = cmmdty_sims.vary_commodity_prices()
+            for cmmdty_id, vary_data in varied_cmmdts.items():
+                if cmmdty_id in self.cmmdts_x_stcks_covars:
+                    vrd_stcks = self.cmmdts_x_stcks_covars[cmmdty_id]
+                    # for each of the stock in the stocks of its x_commodity
+                    for v_stck_id in vrd_stcks:
+                        if v_stck_id not in self.varied_stck_x_cmmdts_dict:
+                            self.varied_stck_x_cmmdts_dict[v_stck_id] = {}
+                        stcks_vary_data = self.varied_stck_x_cmmdts_dict[v_stck_id]
+                        if cmmdty_id not in stcks_vary_data:
+                            stcks_vary_data[cmmdty_id] = vary_data.perc_change * vrd_stcks[v_stck_id]
+                            # vary the set price with each of these commodities variations
+
+
         updated_stcks = []
         grad_stocks: list[SimulatedStock] = []
         for stck in self.stocks:
@@ -131,6 +170,14 @@ class StockSimulator:
             extra_effects = self.affected_stocks[a_stck.id]
             for an_id, price_effect in extra_effects.items():
                 next_price = next_price + price_effect*set_price
+
+            if self.is_coupled:
+                if a_stck.id in self.varied_stck_x_cmmdts_dict:
+                    cmmdties_vars = self.varied_stck_x_cmmdts_dict[a_stck.id]
+                    for cmmdty_x_id in cmmdties_vars:
+                        cmm_price_effect = cmmdties_vars[cmmdty_x_id]
+                        next_price = next_price + cmm_price_effect*set_price
+
 
             next_snapshots.append(
                 SimulatedStockBuffer(
