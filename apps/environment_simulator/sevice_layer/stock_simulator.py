@@ -11,6 +11,7 @@ import numpy as np
 from datetime import datetime
 from django.db.models import Q
 import random
+from dateutil.relativedelta import relativedelta
 
 
 
@@ -208,3 +209,53 @@ class StockSimulator:
             'price_gradient', 
         ])
         SimulatedStockBuffer.objects.bulk_create(un_accounted_for_snpshts)
+
+    def observe_volumes(self):
+        latest_time_step = self.latest_time_step
+        ten_time_steps_ago = latest_time_step - relativedelta(hours= 25)
+        print("ten_time_steps_ago", ten_time_steps_ago)
+        last_10_snapshots: list[SimulatedStockBuffer] = SimulatedStockBuffer.objects.filter(
+            Q(captured_at__gte=ten_time_steps_ago)
+            & Q(captured_at__lte=latest_time_step)
+        ).order_by('-captured_at')
+        last_10_snapshots = list(reversed(last_10_snapshots))
+        stcks_variations = {}
+        print(len(last_10_snapshots))
+        for a_snpsht in last_10_snapshots:
+            if a_snpsht.stock_id not in stcks_variations:
+                stcks_variations[a_snpsht.stock_id] = {
+                    "first_8_consecutives": 0,
+                    "latest_2_consecutives": 0,
+                    "latest_change": 0,
+                    "index": 1
+                }
+            stck_variations: dict = stcks_variations[a_snpsht.stock_id]
+            stck_indx = stck_variations["index"]
+            latest_change = a_snpsht.change
+            if not latest_change:
+                latest_change = 0
+            last_change = stck_variations["latest_change"]
+            if not last_change:
+                last_change = 0
+            if ((latest_change > 0 and last_change <= 0) or (latest_change < 0 and last_change >= 0) or (latest_change == 0 and last_change == 0)):
+                if stck_indx <=8:
+                    stck_variations["first_8_consecutives"] = 0
+                else:
+                    stck_variations["latest_2_consecutives"] = 0
+            else:
+                if latest_change>0:
+                    update = 1
+                else:
+                    update = -1
+                if stck_indx <=8:
+                    stck_variations["first_8_consecutives"] = stck_variations["first_8_consecutives"] + update
+                else:
+                    stck_variations["latest_2_consecutives"] = stck_variations["latest_2_consecutives"] + update
+            if a_snpsht.stock_id == 317:
+                print(stck_variations)
+            stck_variations["index"] = stck_variations["index"] + 1
+
+            stck_variations["latest_change"] = latest_change
+        print(a_snpsht.captured_at)
+        return stcks_variations
+                
