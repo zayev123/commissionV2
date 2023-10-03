@@ -73,12 +73,6 @@ class StockSimulator:
 
         self.varied_stck_x_cmmdts_dict = {}
         self.cmmdts_x_stcks_covars = {}
-        # for xstcm_var in self.stock_x_commodities:
-        #     if xstcm_var.stock.id not in self.stcks_x_cmmdts_covars:
-        #         self.stcks_x_cmmdts_covars[xstcm_var.stock.id] = {}
-        #     stck_x_cmmdts_covars = self.stcks_x_cmmdts_covars[xstcm_var.stock.id]
-        #     if xstcm_var.commodity.id not in stck_x_cmmdts_covars:
-        #         stck_x_cmmdts_covars[xstcm_var.commodity.id] = xstcm_var.factor
 
         for xcmst_var in self.stock_x_commodities:
             if xcmst_var.commodity.id not in self.cmmdts_x_stcks_covars:
@@ -102,6 +96,17 @@ class StockSimulator:
                         if cmmdty_id not in stcks_vary_data:
                             stcks_vary_data[cmmdty_id] = vary_data.perc_change * vrd_stcks[v_stck_id]
                             # vary the set price with each of these commodities variations
+            # try:
+            #     print("comms vary", json.dumps([{k: {
+            #         "original_pice": varied_cmmdts[k].original_pice,
+            #         "next_price": varied_cmmdts[k].next_price,
+            #         "change": varied_cmmdts[k].change,
+            #         "perc_change": varied_cmmdts[k].perc_change,
+            #     }} for k in varied_cmmdts], indent=3))
+            #     print("stocks_vary", json.dumps(self.varied_stck_x_cmmdts_dict, indent=3))
+            # except Exception as error:
+            #     print(error)
+
 
 
         updated_stcks = []
@@ -171,12 +176,14 @@ class StockSimulator:
             for an_id, price_effect in extra_effects.items():
                 next_price = next_price + price_effect*set_price
 
+            # print(set_price, "orgnl", a_stck, next_price)
             if self.is_coupled:
                 if a_stck.id in self.varied_stck_x_cmmdts_dict:
                     cmmdties_vars = self.varied_stck_x_cmmdts_dict[a_stck.id]
                     for cmmdty_x_id in cmmdties_vars:
                         cmm_price_effect = cmmdties_vars[cmmdty_x_id]
                         next_price = next_price + cmm_price_effect*set_price
+            # print("fnl", a_stck, next_price)
 
 
             next_snapshots.append(

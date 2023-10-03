@@ -18,7 +18,7 @@ class CommodityVaryData:
     def __init__(self, original_pice, next_price):
         self.original_pice = original_pice
         self.next_price = next_price
-        self.change = original_pice - next_price
+        self.change = next_price - original_pice
         self.perc_change = self.change/original_pice
 
 class CommoditySimulator:
