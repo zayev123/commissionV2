@@ -44,10 +44,6 @@ class SimulatedStockBuffer(models.Model):
     stock = models.ForeignKey(SimulatedStock, related_name='memory_snapshots', on_delete=models.CASCADE)
     captured_at = models.DateTimeField(blank=True, null=True)
     price_snapshot = models.FloatField(blank=True, null=True)
-    ldcp = models.FloatField(blank=True, null=True)
-    open = models.FloatField(blank=True, null=True)
-    high = models.FloatField(blank=True, null=True)
-    low = models.FloatField(blank=True, null=True)
     change = models.FloatField(blank=True, null=True)
     volume = models.FloatField(blank=True, null=True)
 

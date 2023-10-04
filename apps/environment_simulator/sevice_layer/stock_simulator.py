@@ -53,6 +53,18 @@ class StockSimulator:
         stock_ids = []
         for z_stocks in self.stocks:
             stock_ids.append(z_stocks.id)
+
+        previous_time_snapshot = SimulatedStockBuffer.objects.order_by("-captured_at").filter(Q (captured_at__lt = latest_time_step)).first()
+        if previous_time_snapshot:
+            previous_time_step = previous_time_snapshot.captured_at
+        else:
+            previous_time_step = latest_time_step - relativedelta(hours=2, minutes=30)
+        
+        previous_captures = SimulatedStockBuffer.objects.filter(
+            Q(stock_id__in = stock_ids)
+            & Q (captured_at = previous_time_step)
+        ).all()
+        # print(previous_captures, previous_time_step)
         
         latest_captures = SimulatedStockBuffer.objects.filter(
             Q(stock_id__in = stock_ids)
@@ -64,6 +76,12 @@ class StockSimulator:
             & Q (captured_at = next_time_step)
         ).all()
 
+        self.last_buffer = {}
+        for pev_capt in previous_captures:
+            self.last_buffer[pev_capt.stock_id] = pev_capt
+
+        # print("self.last_buffer ", self.last_buffer )
+        
         self.next_buffer = {}
         for next_capt in existing_next_captures:
             self.next_buffer[next_capt.stock_id] = next_capt
@@ -99,16 +117,16 @@ class StockSimulator:
                         if cmmdty_id not in stcks_vary_data:
                             stcks_vary_data[cmmdty_id] = vary_data.perc_change * vrd_stcks[v_stck_id]
                             # vary the set price with each of these commodities variations
-            try:
-                print("comms vary", json.dumps([{k: {
-                    "original_pice": varied_cmmdts[k].original_pice,
-                    "next_price": varied_cmmdts[k].next_price,
-                    "change": varied_cmmdts[k].change,
-                    "perc_change": varied_cmmdts[k].perc_change,
-                }} for k in varied_cmmdts], indent=3))
-                print("stocks_vary", json.dumps(self.varied_stck_x_cmmdts_dict, indent=3))
-            except Exception as error:
-                print(error)
+            # try:
+            #     print("comms vary", json.dumps([{k: {
+            #         "original_pice": varied_cmmdts[k].original_pice,
+            #         "next_price": varied_cmmdts[k].next_price,
+            #         "change": varied_cmmdts[k].change,
+            #         "perc_change": varied_cmmdts[k].perc_change,
+            #     }} for k in varied_cmmdts], indent=3))
+            #     print("stocks_vary", json.dumps(self.varied_stck_x_cmmdts_dict, indent=3))
+            # except Exception as error:
+            #     print(error)
 
 
 
@@ -135,7 +153,7 @@ class StockSimulator:
 
             price_diff = next_grad_price - curr_price
             perc_diff = price_diff/curr_price
-            print(f"{stck.id}, {stck.name}", curr_price, gradient, next_grad_price, perc_diff)
+            # print(f"{stck.id}, {stck.name}", curr_price, gradient, next_grad_price, perc_diff)
             if stck.id not in self.affected_stocks:
                 self.affected_stocks[stck.id] = {}
             
@@ -146,8 +164,8 @@ class StockSimulator:
                         self.affected_stocks[stck_id] = {}
                     self.affected_stocks[stck_id][stck.id] = xvar*perc_diff
             
-            print(json.dumps(self.affected_stocks, indent=3))
-            print("")
+            # print(json.dumps(self.affected_stocks, indent=3))
+            # print("")
 
             steps_left = steps_left - 1
             new_grad = gradient
@@ -168,34 +186,48 @@ class StockSimulator:
                 "original_price": curr_price
             })
 
-        print(json.dumps(self.affected_stocks, indent=3))
-        print(grad_stocks)
+        # print(json.dumps(self.affected_stocks, indent=3))
+        # print(grad_stocks)
+
         next_snapshots: list[SimulatedStockBuffer] = []
         for a_stock_data in grad_stocks:
             a_stck: SimulatedStock = a_stock_data["obj"]
             next_price = a_stock_data["next_grad_price"]
             set_price = a_stock_data["original_price"]
-            print(set_price, "orgnl1", a_stck, next_price)
+            # print(set_price, "orgnl1", a_stck, next_price)
             extra_effects = self.affected_stocks[a_stck.id]
             for an_id, price_effect in extra_effects.items():
                 next_price = next_price + price_effect*set_price
 
-            print(set_price, "orgnl2", a_stck, next_price)
+            # print(set_price, "orgnl2", a_stck, next_price)
             if self.is_coupled:
                 if a_stck.id in self.varied_stck_x_cmmdts_dict:
                     cmmdties_vars = self.varied_stck_x_cmmdts_dict[a_stck.id]
                     for cmmdty_x_id in cmmdties_vars:
                         cmm_price_effect = cmmdties_vars[cmmdty_x_id]
                         next_price = next_price + cmm_price_effect*set_price
-            print("fnl", a_stck, next_price)
-            print("")
 
+            new_volume = 1000
+            if a_stck.id in self.market_sentiment:
+                senti_data = self.market_sentiment[a_stck.id]
+                new_volume = senti_data["new_volume"]
+                vol_price_effect = senti_data["vol_price_effect"]
+                next_price = next_price + vol_price_effect*set_price
+
+            # print(set_price, "orgnl3", a_stck, next_price)
+
+            # print("fnl", a_stck, next_price, new_volume)
+            # print("")
+
+            new_change = next_price - set_price
 
             next_snapshots.append(
                 SimulatedStockBuffer(
                     stock = a_stck,
                     captured_at = self.next_time_step,
-                    price_snapshot = next_price
+                    price_snapshot = next_price,
+                    change = new_change,
+                    volume = new_volume
                 )
             )
         un_accounted_for_stcks = []
@@ -215,8 +247,8 @@ class StockSimulator:
         SimulatedStockBuffer.objects.bulk_create(un_accounted_for_snpshts)
 
     def observe_volumes(self):
-        latest_time_step = self.latest_time_step
-        ten_time_steps_ago = latest_time_step - relativedelta(hours= 25)
+        latest_time_step = self.next_time_step
+        ten_time_steps_ago = latest_time_step - relativedelta(hours= 22, minutes=30)
         # print("ten_time_steps_ago", ten_time_steps_ago)
         last_10_snapshots: list[SimulatedStockBuffer] = SimulatedStockBuffer.objects.select_related("stock").filter(
             Q(captured_at__gte=ten_time_steps_ago)
@@ -226,6 +258,7 @@ class StockSimulator:
         # print(last_10_snapshots[0].captured_at, last_10_snapshots[-1].captured_at)
         stcks_variations = {}
         # print(len(last_10_snapshots))
+        # print("")
         for a_snpsht in last_10_snapshots:
             if a_snpsht.stock_id not in stcks_variations:
                 if not a_snpsht.volume:
@@ -251,6 +284,12 @@ class StockSimulator:
             last_change = stck_variations["latest_change"]
             if not last_change:
                 last_change = 0
+
+            # if a_snpsht.stock_id == 338:
+            #     print(a_snpsht.captured_at)
+            #     print("latest_change", a_snpsht.change, latest_change, a_snpsht.price_snapshot)
+            #     print("last_change", last_change)
+
             if ((latest_change >= 0 and last_change <= 0) or (latest_change <= 0 and last_change >= 0) or (latest_change == 0 and last_change == 0)):
                 if stck_indx <=8:
                     stck_variations["first_8_consecutives"] = 0
@@ -265,12 +304,16 @@ class StockSimulator:
                     stck_variations["first_8_consecutives"] = stck_variations["first_8_consecutives"] + update
                 else:
                     stck_variations["latest_2_consecutives"] = stck_variations["latest_2_consecutives"] + update
-            # if a_snpsht.stock_id == 318:
+            
+            # if a_snpsht.stock_id == 338:
             #     print(a_snpsht.volume)
             #     print(stck_variations)
+            #     print("")
+            
             stck_variations["index"] = stck_variations["index"] + 1
-
             stck_variations["latest_change"] = latest_change
+            stck_variations["volume_so_far"] = a_snpsht.volume
+
         # print(a_snpsht.captured_at)
         for stcx_id, vols_data in stcks_variations.items():
             first_8_consecutives = vols_data["first_8_consecutives"]
@@ -284,25 +327,52 @@ class StockSimulator:
             set_vol_to_price_effect_perc = np.random.normal(volume_x_price_factor, sd_price)
             expected_volume_perc_change = set_price_to_vol_effect_perc
             pos_sign = 1
-            if first_8_consecutives > 0 and latest_2_consecutives < 0:
+            if first_8_consecutives >= 5 and latest_2_consecutives < 0:
                 expected_volume_perc_change = -1*expected_volume_perc_change
                 pos_sign = -1
-            elif first_8_consecutives < 0 and latest_2_consecutives > 0:
+            elif first_8_consecutives <= 5 and latest_2_consecutives > 0:
                 pass
             else:
                 expected_volume_perc_change = 0
+                set_price_to_vol_effect_perc = 0
             vols_data["expected_volume_perc_change"] = expected_volume_perc_change
             last_volume = vols_data["volume_so_far"]
             if last_volume< 10:
                 last_volume = 10
-            amplifier = 200
+            amplifier = 5
             new_volume = last_volume + abs(perc_price_change)*set_price_to_vol_effect_perc*last_volume*amplifier
-            vols_data["new_volume"] = new_volume
+            vols_data["new_volume"] = np.random.normal(new_volume, new_volume/100)
+            new_volume = vols_data["new_volume"]
+            
+            # if stcx_id == 343:
+            #     print(new_volume < last_volume)
+            #     print(new_volume, last_volume)
+            
+            if new_volume < last_volume:
+                # if stcx_id == 343:
+                #     print("why", last_volume)
+                new_volume = last_volume + (last_volume - new_volume)/5
+                vols_data["new_volume"] = new_volume
+            
+            # if stcx_id == 343:
+            #     print("start")
+            #     print(last_volume)
+            #     print(vols_data["new_volume"])
+            #     print("")
+
             volume_perc_change = (new_volume-last_volume)/last_volume
             vol_price_effect = volume_perc_change*set_vol_to_price_effect_perc*pos_sign
             vols_data["vol_price_effect"] = vol_price_effect
 
-
-
+        # print(json.dumps(stcks_variations, indent = 3))
         return stcks_variations
+
+    def reset_sentiments(self):
+        vols = self.market_sentiment
+        for stock_id, vol_data in vols.items():
+            vol = np.random.choice(list(range(30,100,10)))*np.random.choice(list(range(5,70,10)))
+            vol_data["new_volume"] = vol
+            vols[stock_id] = vol_data
+
+
                 

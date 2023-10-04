@@ -92,11 +92,7 @@ class SimulatedStockBufferAdmin(admin.ModelAdmin):
         'captured_at',
         'stock', 
         'id', 
-        'price_snapshot', 
-        'ldcp',
-        'open',
-        'high',
-        'low',
+        'price_snapshot',
         'change',
         'volume'
     ]
