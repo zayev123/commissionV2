@@ -114,6 +114,7 @@ class Trader(AbstractBaseUser):
     objects = TraderManager()
     digi6Code = models.CharField(max_length=6, blank=True, null=True)
     is6Code_verified = models.BooleanField(default=False)
+    simulated_portfolio_value = models.FloatField(blank=True, null=True)
 
     USERNAME_FIELD = 'email'
 
