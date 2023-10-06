@@ -220,6 +220,9 @@ class StockSimulator:
             # print("")
 
             new_change = next_price - set_price
+            mem_snpsht = self.mem_buffer[a_stck.id]
+
+            (offer_vol, offer_price, bid_vol, bid_price) = StockSimulator.manage_offer_bids(mem_snpsht, new_change, next_price)
 
             next_snapshots.append(
                 SimulatedStockBuffer(
@@ -227,7 +230,11 @@ class StockSimulator:
                     captured_at = self.next_time_step,
                     price_snapshot = next_price,
                     change = new_change,
-                    volume = new_volume
+                    volume = new_volume,
+                    bid_vol = bid_vol,
+                    bid_price = bid_price,
+                    offer_vol = offer_vol,
+                    offer_price = offer_price
                 )
             )
         un_accounted_for_stcks = []
@@ -366,6 +373,49 @@ class StockSimulator:
 
         # print(json.dumps(stcks_variations, indent = 3))
         return stcks_variations
+    
+    @staticmethod
+    def manage_offer_bids(stck: SimulatedStockBuffer, new_change, new_price):
+        offer_vol = None
+        offer_price = None
+        bid_vol = None
+        bid_price = None
+        offer_sd = stck.offer_vol/40
+        bid_sd = stck.bid_vol/40
+
+        perc_change = new_change/stck.price_snapshot
+        if perc_change > 0.05:
+            offer_vol_change = -1*perc_change
+            bid_vol_change = 1*perc_change
+        elif perc_change < -0.05:
+            offer_vol_change = perc_change
+            bid_vol_change = -1*perc_change
+        else:
+            offer_vol = abs(np.random.normal(stck.offer_vol, offer_sd))
+            bid_vol = abs(np.random.normal(stck.bid_vol, bid_sd))
+
+        if offer_vol is None and bid_vol is None:
+            offer_vol = stck.offer_vol*(1+offer_vol_change)
+            bid_vol = stck.bid_vol*(1+bid_vol_change)
+
+            offer_vol = abs(np.random.normal(stck.offer_vol, offer_sd))
+            bid_vol = abs(np.random.normal(stck.bid_vol, bid_sd))
+
+        if perc_change >0.05:
+            offer_price = new_price + abs(perc_change*abs((np.random.normal(6,0.5))))
+            bid_price = new_price + abs(perc_change*abs((np.random.normal(3,0.5))))
+        elif perc_change < 0.05:
+            offer_price = new_price + abs(perc_change*abs((np.random.normal(3,0.5))))
+            bid_price = new_price + abs(perc_change*abs((np.random.normal(1,0.5))))
+        
+        else:
+            offer_price = new_price + abs(perc_change*abs((np.random.normal(4,0.5))))
+            bid_price = new_price + abs(perc_change*abs((np.random.normal(2,0.5))))
+
+        return (offer_vol, offer_price, bid_vol, bid_price)
+
+
+
 
     def reset_sentiments(self):
         vols = self.market_sentiment

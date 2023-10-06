@@ -46,6 +46,12 @@ class SimulatedStockBuffer(models.Model):
     price_snapshot = models.FloatField(blank=True, null=True)
     change = models.FloatField(blank=True, null=True)
     volume = models.FloatField(blank=True, null=True)
+    bid_vol = models.FloatField(blank=True, null=True)
+    bid_price = models.FloatField(blank=True, null=True)
+    offer_vol = models.FloatField(blank=True, null=True)
+    offer_price = models.FloatField(blank=True, null=True)
+
+
 
     def __str__(self):
         return f"{str(self.id)}, " + str(self.stock.name) + ', ' + str(self.price_snapshot)

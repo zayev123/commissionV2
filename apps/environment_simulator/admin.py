@@ -94,7 +94,11 @@ class SimulatedStockBufferAdmin(admin.ModelAdmin):
         'id', 
         'price_snapshot',
         'change',
-        'volume'
+        'volume',
+        'bid_vol',
+        'bid_price',
+        'offer_vol',
+        'offer_price',
     ]
     search_fields = ['stock__name', 'captured_at']
 
