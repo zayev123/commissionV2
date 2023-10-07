@@ -25,3 +25,7 @@ simulating the volume traded will be the real tricky part
 
 also consider updating the gradients in the middle, to see how the model 
 adapts
+
+hmm, maybe I should update the state based on my answers, but I should not update the rewards
+
+because the state should be my source of truth
