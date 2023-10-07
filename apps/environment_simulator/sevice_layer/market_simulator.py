@@ -14,7 +14,6 @@ class MarketSimulator(gym.Env):
         
 
         # There are two actions, first will get reward of 1, second reward of -1. 
-        print(env_config)
         __time_step  = datetime(year=1995, month=1, day=1, hour=10)
         __last_time_step = __time_step + relativedelta(hours=505)
         self.__time_step = pytz.utc.localize(datetime.strptime(str(__time_step), '%Y-%m-%d %H:%M:%S'))
