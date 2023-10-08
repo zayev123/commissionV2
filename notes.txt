@@ -29,3 +29,7 @@ adapts
 hmm, maybe I should update the state based on my answers, but I should not update the rewards
 
 because the state should be my source of truth
+
+I never keep less than one share in the company
+
+first sell all, then buy all

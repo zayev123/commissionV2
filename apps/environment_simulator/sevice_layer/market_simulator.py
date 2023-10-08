@@ -60,7 +60,7 @@ class MarketSimulator(gym.Env):
         if init:
             stock_state = np.zeros((num_stocks, num_stock_attributes))
             commodity_state = np.zeros((num_commodities, 1))
-            wallet_state = np.array([self.__initial_balance])
+            wallet_state = np.array([0])
         else:
             (stock_state, commodity_state, wallet_state) = self.state
 
@@ -77,7 +77,12 @@ class MarketSimulator(gym.Env):
             indx = a_stck["index"] -1
             if init:
                 stock_state[indx][6] = a_stck["price_snapshot"]
-                stock_state[indx][7] = 10
+                available_per_stock = self.__initial_balance/5
+                if a_stck["price_snapshot"] == 0:
+                    shares = 0
+                else:
+                    shares = available_per_stock/a_stck["price_snapshot"]
+                stock_state[indx][7] = shares
             else:
                 stock_state[indx][6] = stock_state[indx][0]
             stock_state[indx][0] = a_stck["price_snapshot"]
