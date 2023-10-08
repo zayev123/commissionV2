@@ -23,10 +23,15 @@ class MarketSimulator(gym.Env):
     def __get_actn_shape(self):
         no_of_stocks = 5
 
+        # actns = [list(range(-1000,1001,1)) for i in range(no_of_stocks)]
+        # num_possible_values = 2001  # 2001 values from -1000 to 1000 (inclusive)
+        # actn_shape = gym.spaces.MultiDiscrete(np.array([[1001, 2],[1001, 2],[1001, 2],[1001, 2],[1001, 2]]))
+        # amount_shape = gym.spaces.MultiDiscrete([1001,1001,1001,1001,1001])
 
 
-        lower_bounds = [0] * no_of_stocks
-        upper_bounds = [float('inf')] * no_of_stocks
+
+        lower_bounds = [-1000] * no_of_stocks
+        upper_bounds = [1000] * no_of_stocks
 
         actn_shape = spaces.Box(low=np.array(lower_bounds), high=np.array(upper_bounds))
                 
@@ -168,6 +173,21 @@ class MarketSimulator(gym.Env):
         #return <obs>
         return self.state
                            
+    def __get_action_change(self, action, index):
+        actions = action
+        change_in_shares = actions[index]
+        # divisor = 2
+
+        # factor = change_in_shares // divisor
+        # remainder = change_in_shares % divisor
+
+        # if remainder == 0:
+        #     change_in_shares = -1*factor
+        # else:
+        #     change_in_shares = factor
+        return change_in_shares
+
+    
     def step(self, action):
         # if we took an action, we were in state 1
         self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
@@ -179,6 +199,7 @@ class MarketSimulator(gym.Env):
             print(commodity_state)
             print(stock_state)
             print(wallet_state)
+
 
         actions = action
         no_of_actions = len(actions)
@@ -203,7 +224,7 @@ class MarketSimulator(gym.Env):
             old_stock_price = stock_state[index][6]
             current_no_of_shares = stock_state[index][7]
 
-            change_in_shares = actions[index]
+            change_in_shares = self.__get_action_change(action, index)
 
             old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
             current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
@@ -241,7 +262,7 @@ class MarketSimulator(gym.Env):
             old_stock_price = stock_state[index][6]
             current_no_of_shares = stock_state[index][7]
 
-            change_in_shares = actions[index]
+            change_in_shares = self.__get_action_change(action, index)
                 
             if change_in_shares > 0:
                 if self.__print_output:
@@ -257,6 +278,8 @@ class MarketSimulator(gym.Env):
                 if capital_locked > total_freed_capital:
                     penalty = penalty + total_freed_capital - capital_locked
                     capital_locked = total_freed_capital
+                    if self.__print_output:
+                        print("crack_2")
                 change_in_shares = capital_locked/offer_price
                 total_freed_capital = total_freed_capital - capital_locked
 
@@ -280,7 +303,7 @@ class MarketSimulator(gym.Env):
             stock_state[index][7] = new_shares[index]
             new_portfolio_value = new_portfolio_value + stock_state[index][7]*stock_state[index][0]
 
-        reward = current_portfolio_value - old_portfolio_value + penalty
+        reward = current_portfolio_value - old_portfolio_value #+ penalty
 
         self.state = (stock_state, commodity_state, wallet_state)
         info = {}
