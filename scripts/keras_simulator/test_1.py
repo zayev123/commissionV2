@@ -71,6 +71,8 @@ class Test1:
 
         myEnv = MarketSimulator(env_config)
         obs = myEnv.observation_space
+        self.action_shape = myEnv.action_space.shape
+        print("yp", self.action_shape[0])
         shp = obs.shape
         (stock_shape, commodity_shape, wallet_shape) = obs
         stck_shape = stock_shape.shape
@@ -113,9 +115,6 @@ class Test1:
                 shp = tuple(shp)
                 laListoShps.append(shp)
             return(laListoShps)
-        the_listo = [stock_shape.shape, commodity_shape.shape, wallet_shape.shape]
-
-        # [stock_shape, commodity_shape, wallet_shape] = get_tuple_shapes(the_listo)
 
         stock_input = Input(shape=stock_shape.shape, name='stock_observation_input')
         stock_input = Flatten()(stock_input)
@@ -147,18 +146,14 @@ class Test1:
         )
         Q_model.summary()
         Q_model.compile(optimizer=Adam(), loss='mse')
-        print("lalaland")
         return Q_model
 
 
     def get_trainable_model(self):
         Q_model = self.get_Q_test()
         my_layer = Q_model.get_layer(name="meged_input")
-        print("my_layer_0", my_layer.name)
         Q_layer = Q_model.get_layer(index=1)
-        print("my_layer_1", Q_layer.name)
         obs_input = my_layer.output
-        print("obs_input", obs_input,)
         q_estimate_output = Q_model.get_layer("Q_output").output
         # define 2 new inputs
         mask_input = Input(

@@ -4,6 +4,7 @@ from services.zayev.service_layer.replay_buffer import ReplayBuffer
 from keras.models import clone_model
 import ray
 import numpy as np
+from keras.models import Model
 
 
 # @ray.remote
@@ -16,22 +17,20 @@ class Learner:
         self.replay_buffer: ReplayBuffer = replay_buffer
         self.parameter_server = parameter_server
         self.Q, self.trainable = zayev.get_trainable_model()
+        self.Q: Model = self.Q
+        self.trainable: Model = self.trainable
         self.target_network = clone_model(self.Q)
         self.train_batch_size = zayev.train_batch_size  # You can set the default value accordingly
         self.total_collected_samples = 0
         self.samples_since_last_update = 0
         self.learning_starts = zayev.learning_starts
-        self.obs_shape = zayev.obsevation_shape
+        self.obs_shape = zayev.obs_space.shape
         self.n_actions = zayev.n_actions
-        self.send_weights_to_parameter_server()
         self.stopped = False
 
     def send_weights(self):
-        id = self.parameter_server.update_weights(self.Q.get_weights())
+        id = self.parameter_server.update_weights(self.trainable.get_weights())
         # ray.get(id)
-
-    def send_weights_to_parameter_server(self):
-        self.parameter_server.update_weights(self.Q.get_weights())
     
     def start_learning(self):
         print("Learning starting...")
@@ -53,18 +52,12 @@ class Learner:
                 if s:
                     ndim_obs *= s
             n_actions = self.n_actions
-            obs = np.array([sample[0] for sample \
-                in samples]).reshape((N, ndim_obs))
-            actions = np.array([sample[1] for sample \
-                in samples]).reshape((N,))
-            rewards = np.array([sample[2] for sample \
-                in samples]).reshape((N,))
-            last_obs = np.array([sample[3] for sample \
-                in samples]).reshape((N, ndim_obs))
-            done_flags = np.array([sample[4] for sample \
-                in samples]).reshape((N,))
-            gammas = np.array([sample[5] for sample \
-                in samples]).reshape((N,))
+            obs = np.array([sample[0] for sample in samples]).reshape((N, ndim_obs))
+            actions = np.array([sample[1] for sample in samples]).reshape((N, n_actions))
+            rewards = np.array([sample[2] for sample in samples]).reshape((N,))
+            last_obs = np.array([sample[3] for sample in samples]).reshape((N, ndim_obs))
+            done_flags = np.array([sample[4] for sample in samples]).reshape((N,))
+            gammas = np.array([sample[5] for sample in samples]).reshape((N,))
             masks = np.zeros((N, n_actions))
             masks[np.arange(N), actions] = 1
             dummy_labels = np.zeros((N,))
@@ -73,13 +66,14 @@ class Learner:
             target_network_estimates = self.target_network.predict(last_obs)
             q_value_estimates = np.array(
                 [
-                    target_network_estimates[i,
-                    maximizer_a[i]]
+                    target_network_estimates[
+                        i,
+                        maximizer_a[i]
+                    ]
                     for i in range(N)
                 ]).reshape((N,)
             )
-            sampled_bellman = rewards + gammas * \
-                q_value_estimates * (1 - done_flags)
+            sampled_bellman = rewards + gammas * q_value_estimates * (1 - done_flags)
             
             # the obs can be something like the demand for the patty that day
             # masks is the action taken and sampled bellman is the expected rewards for that actions

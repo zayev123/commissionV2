@@ -29,10 +29,8 @@ class Zayev:
             "the_current_time_step": self.starting_time_step,
             "print_output": False
         }
-        # self.obsevation_shape = config.get("obs_shape")
         self.fcnet_hiddens = config.get("fcnet_hiddens")
         self.fcnet_activation  = config.get("fcnet_activation")
-        self.n_actions = config.get("n_actions")
         self.learning_rate = config.get("learning_rate")
         self.grad_clip = config.get("grad_clip")
         self.n_step = config.get("n_step", 1)
@@ -50,7 +48,9 @@ class Zayev:
         self.eval_actor_ids: list[Actor] = []
         self.training_actor_ids: list[Actor] = []
         self.env = MarketSimulator(env_config)
-        self.obsevation_shape = self.env.observation_space
+        self.obs_space = self.env.observation_space
+        self.action_shape = self.env.action_space.shape
+        self.n_actions = self.action_shape[0]
         self.replay_buffer = ReplayBuffer(self)
         self.parameter_server = ParameterServer(self)
         self.learner: Learner = Learner(self, self.replay_buffer, self.parameter_server)
@@ -60,12 +60,12 @@ class Zayev:
         self.learner.start_learning()
 
     def get_Q_network(self): 
-        (stock_shape, commodity_shape, wallet_shape) = self.obsevation_shape
-        stock_input = Input(shape=stock_shape.shape, name='stock_observation_input')
+        (stock_space, commodity_space, wallet_space) = self.obs_space
+        stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
         stock_input = Flatten()(stock_input)
-        commodity_input = Input(shape=commodity_shape.shape, name='commodity_observation_input')
+        commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
         commodity_input = Flatten()(commodity_input)
-        wallet_input = Input(shape=wallet_shape.shape, name='wallet_observation_input')
+        wallet_input = Input(shape=wallet_space.shape, name='wallet_observation_input')
         wallet_input = Flatten()(wallet_input)
         obs_input = Concatenate(name='Q_input')([stock_input, commodity_input, wallet_input])
         
@@ -101,9 +101,7 @@ class Zayev:
     
     def get_trainable_model(self):
         Q_model = self.get_Q_network()
-        my_layer = Q_model.get_layer(name="Q_input")
-        print("my_layer", my_layer.name,)
-        obs_input = my_layer.output
+        obs_input = Q_model.get_layer(name="Q_input").output
         q_estimate_output = Q_model.get_layer("Q_output").output
         # define 2 new inputs
         mask_input = Input(

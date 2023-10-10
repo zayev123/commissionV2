@@ -25,7 +25,7 @@ class Actor:
         self.Q = zayev.get_Q_network()
         self.env = zayev.env
         self.local_buffer = []
-        self.obs_shape = zayev.obsevation_shape
+        self.obs_space = zayev.obs_space
         self.n_actions = zayev.n_actions
         self.multi_step_n = zayev.n_step
         self.q_update_freq = zayev.q_update_freq
