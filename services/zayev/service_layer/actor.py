@@ -1,119 +1,60 @@
-from collections import deque
-import ray
+from datetime import datetime
+from os import environ
+from gymnasium import Space
+from keras import Model
+from keras.layers import Dense,Flatten, Input, Concatenate
+from keras import backend as K
+from matplotlib.dates import relativedelta
+import tensorflow as tf
 import numpy as np
-from services.zayev.service_layer.parameter_server import ParameterServer
-from services.zayev.service_layer.replay_buffer import ReplayBuffer
-# from services.zayev.service_layer.zayev import Zayev
+from keras.optimizers import Adam
+
+from services.zayev.environment.market_simulator import MarketSimulator
 
 
-# @ray.remote
-class Actor:
-    def __init__(
-        self,
-        zayev, #: Zayev,
-        actor_id,
-        replay_buffer,
-        parameter_server,
-        eps,
-        eval=False,
-    ):
-        self.actor_id = actor_id
-        self.replay_buffer: ReplayBuffer = replay_buffer
-        self.parameter_server: ParameterServer = parameter_server
-        self.eps = eps
-        self.eval = eval
-        self.Q = zayev.get_Q_network()
-        self.env = zayev.env
-        self.local_buffer = []
-        self.obs_space = zayev.obs_space
-        self.n_actions = zayev.n_actions
-        self.multi_step_n = zayev.n_step
-        self.q_update_freq = zayev.q_update_freq
-        self.send_experience_freq = zayev.send_experience_freq
-        self.gamma = zayev.gamma
-        self.continue_sampling = True
-        self.cur_episodes = 0
-        self.cur_steps = 0
+class Actor_Model:
+    def __init__(self, env, lr, optimizer):
 
-    def update_q_network(self):
-        if self.eval:
-            pid = self.parameter_server.get_eval_weights()
-        else:
-            pid = self.parameter_server.get_weights()
-        new_weights = pid
-        if new_weights:
-            self.Q.set_weights(new_weights)
+        self.env = env
+        # self.env = env
+        (stock_space, commodity_space, wallet_space) = self.env.observation_space
+        stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
+        stock_input = Flatten()(stock_input)
+        commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
+        commodity_input = Flatten()(commodity_input)
+        wallet_input = Input(shape=wallet_space.shape, name='wallet_observation_input')
+        wallet_input = Flatten()(wallet_input)
+        obs_input = Concatenate(name='ppo_input')([stock_input, commodity_input, wallet_input])
+        X_input = Flatten()(obs_input)
+        self.action_shape = self.env.action_space.shape[0]
+        
+        X = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
+        X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(64, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        output = Dense(self.action_shape, activation="tanh")(X)
 
-    def stop(self):
-        self.continue_sampling = False
+        self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
+        self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=Adam())
+        #print(self.Actor.summary())
 
-    def sample(self):
-        self.update_q_network()
-        observation = self.env.reset()
-        # print("pleasy1", observation)
-        # print("pleasy2", observation)
-        episode_reward = 0
-        episode_length = 0
-        n_step_buffer = deque(maxlen=self.multi_step_n + 1)
-        while self.continue_sampling:
-            # here 2
-            if type(observation) is tuple:
-                observation = np.array(observation[0])
-            action = self.get_action (observation)
-            abcd = self.env.step(action)
-            next_observation, reward, \
-            done, truncated, info = abcd
-            n_step_buffer.append((observation, action, reward, done))
-            if len(n_step_buffer) == self.multi_step_n + 1:
-                self.local_buffer.append(
-                self.get_n_step_trans(n_step_buffer))
-            self.cur_steps += 1
-            episode_reward += reward
-            episode_length += 1
-            if done:
-                if self.eval:
-                    break
-                next_observation = self.env.reset()
-                if len(n_step_buffer) > 1:
-                    self.local_buffer.append(self.get_n_step_trans(n_step_buffer))
-                self.cur_episodes += 1
-                episode_reward = 0
-                episode_length = 0
-            observation = next_observation
-            if self.cur_steps % \
-                    self.send_experience_freq == 0 \
-                    and not self.eval:
-                self.send_experience_to_replay()
-            if self.cur_steps % \
-                    self.q_update_freq == 0 and not self.eval:
-                self.update_q_network()
-        return episode_reward
-    
-    def get_action(self, observation):
-        ## here 1
-        observation = observation.reshape((1, -1))
-        q_estimates = self.Q.predict(observation)[0]
-        if np.random.uniform() <= self.eps:
-            action = np.random.randint(self.n_actions)
-        else:
-            action = np.argmax(q_estimates)
-        return action
-    
-    def get_n_step_trans(self, n_step_buffer):
-        gamma = self.zayev
-        discounted_return = 0
-        cum_gamma = 1
-        for trans in list(n_step_buffer)[:-1]:
-            _, _, reward, _ = trans
-            discounted_return += cum_gamma * reward
-            cum_gamma *= gamma
-        observation, action, _, _ = n_step_buffer[0]
-        last_observation, _, _, done = n_step_buffer[-1]
-        experience = (observation, action, discounted_return,
-        last_observation, done, cum_gamma)
-        return experience
-    
-    def send_experience_to_replay(self):
-        rf = self.replay_buffer.add(self.local_buffer)
-        # ray.wait([rf])
-        self.local_buffer = []
+    def ppo_loss_continuous(self, y_true, y_pred):
+        advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]
+        LOSS_CLIPPING = 0.2
+        logp = self.gaussian_likelihood(actions, y_pred)
+
+        ratio = K.exp(logp - logp_old_ph)
+
+        p1 = ratio * advantages
+        p2 = tf.where(advantages > 0, (1.0 + LOSS_CLIPPING)*advantages, (1.0 - LOSS_CLIPPING)*advantages) # minimum advantage
+
+        actor_loss = -K.mean(K.minimum(p1, p2))
+
+        return actor_loss
+
+    def gaussian_likelihood(self, actions, pred): # for keras custom loss
+        log_std = -0.5 * np.ones(self.action_shape, dtype=np.float32)
+        pre_sum = -0.5 * (((actions-pred)/(K.exp(log_std)+1e-8))**2 + 2*log_std + K.log(2*np.pi))
+        return K.sum(pre_sum, axis=1)
+
+    def predict(self, state):
+        return self.Actor.predict(state)

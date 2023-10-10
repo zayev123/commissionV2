@@ -44,6 +44,23 @@ class Test1:
             "max_samples": 500,
             # "starting_time_step": starting_time_step
         }
+        db_params = {
+            'database': environ.get("POSTGRES_DB"),
+            'user': environ.get("POSTGRES_USER"),
+            'password': environ.get("POSTGRES_PASSWORD"),
+            'host': environ.get("DB_HOST"),
+            'port': environ.get("DB_PORT"),
+        }
+        my_current_time_step  = datetime(year=1995, month=1, day=1, hour=10) + relativedelta(hours=0)
+
+        env_config = {
+            "db_params": db_params, 
+            "max_episode_steps": 150, 
+            "print_output": False,
+            "the_current_time_step": my_current_time_step,
+        }
+
+        self.myEnv = MarketSimulator(env_config)
 
     def masked_loss(self, args):
         y_true, y_pred, mask = args
@@ -147,6 +164,40 @@ class Test1:
         Q_model.summary()
         Q_model.compile(optimizer=Adam(), loss='mse')
         return Q_model
+    
+    def tes2(self):
+        (stock_space, commodity_space, wallet_space) = self.myEnv.observation_space
+        stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
+        stock_input = Flatten()(stock_input)
+        commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
+        commodity_input = Flatten()(commodity_input)
+        wallet_input = Input(shape=wallet_space.shape, name='wallet_observation_input')
+        wallet_input = Flatten()(wallet_input)
+        obs_input = Concatenate(name='ppo_input')([stock_input, commodity_input, wallet_input])
+        X_input = Flatten()(obs_input)
+        self.action_shape = self.myEnv.action_space.shape[0]
+        
+        X = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
+        X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(64, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        output = Dense(self.action_shape, activation="tanh")(X)
+
+        self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
+        self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=Adam())
+
+    def ppo_loss_continuous(self, y_true, y_pred):
+        advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]
+        LOSS_CLIPPING = 0.2
+        logp = self.gaussian_likelihood(actions, y_pred)
+
+        ratio = K.exp(logp - logp_old_ph)
+
+        p1 = ratio * advantages
+        p2 = tf.where(advantages > 0, (1.0 + LOSS_CLIPPING)*advantages, (1.0 - LOSS_CLIPPING)*advantages) # minimum advantage
+
+        actor_loss = -K.mean(K.minimum(p1, p2))
+
+        return actor_loss
 
 
     def get_trainable_model(self):
