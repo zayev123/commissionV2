@@ -35,7 +35,7 @@ class Actor_Model:
 
         self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
         self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=optimizer(lr=lr))
-        #print(self.Actor.summary())
+        # print(self.Actor.summary())
 
     def ppo_loss_continuous(self, y_true, y_pred):
         advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]

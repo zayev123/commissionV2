@@ -11,7 +11,6 @@ import pytz
 
 class MarketSimulator(gym.Env):
     def __init__(self, env_config: dict=None):
-        print(env_config)
         self.env_config = env_config
         self.__initial_balance = 100000
         self.action_space = self.__get_actn_shape()

@@ -36,7 +36,7 @@ class Test1:
             "gamma": 0.99,
             "fcnet_hiddens": [256, 256],
             "fcnet_activation": "tanh",
-            "learning_rate": 0.0001,
+            "lr": 0.0001,
             "buffer_size": 100,
             "learning_starts": 100,
             "timesteps_per_iteration": 200,

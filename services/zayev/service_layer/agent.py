@@ -15,7 +15,8 @@ from tensorboardX import SummaryWriter
 tf.compat.v1.disable_eager_execution() # usually using this for fastest performance
 from keras.layers import Dense,Flatten, Input
 from keras.models import Model, load_model
-from keras.optimizers import Adam, RMSprop, Adagrad, Adadelta
+from keras.optimizers import RMSprop, Adagrad, Adadelta
+from keras.optimizers.legacy import Adam
 from keras import backend as K
 import copy
 
@@ -67,13 +68,13 @@ class PPOAgent:
 
 
         self.state_size = state_size
-        self.EPISODES = 200 # total episodes to train through all environments
+        self.EPISODES = 10 # total episodes to train through all environments
         self.episode = 0 # used to track the episodes total count of episodes played through all thread environments
         self.max_average = 0 # when average score is above 0 model will be saved
         self.lr = 0.00025
         self.epochs = 10 # training epochs
         self.shuffle = True
-        self.Training_batch = 512
+        self.Training_batch = 100
         #self.optimizer = RMSprop
         self.optimizer = Adam
 
@@ -141,16 +142,44 @@ class PPOAgent:
             gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
         return np.vstack(gaes), np.vstack(target)
 
-    def replay(self, states, actions, rewards, dones, next_states, logp_ts):
+    def flatten_states(self, states):
+        flattened_states = []
+
+        for state in states:
+            # Flatten each state and concatenate them into a single array
+            flattened_state = [item for sublist in state for item in sublist]
+            flattened_states.append(flattened_state)
+
+        # Convert the list of flattened states into a NumPy array
+        final_states = np.array(flattened_states)
+        return final_states
+    
+    def replay(
+            self, stock_states, commodity_states, wallet_states, 
+            actions, rewards, dones, 
+            next_stock_states, next_commodity_states, next_wallet_states, 
+            logp_ts
+    ):
         # reshape memory to appropriate shape for training
-        states = np.vstack(states)
-        next_states = np.vstack(next_states)
+        # print(len(states))
+        # print(states[0])
+        # print(len(states[0]))
+        # [stock_observation, commodity_observation, wallet_observation] = states[0]
+        # print(stock_observation)
+        # print(commodity_observation)
+        # print(wallet_observation)
+        stock_states = np.vstack(stock_states)
+        commodity_states = np.vstack(commodity_states)
+        wallet_states = np.vstack(wallet_states)
+        next_stock_states = np.vstack(next_stock_states)
+        next_commodity_states = np.vstack(next_commodity_states)
+        next_wallet_states = np.vstack(next_wallet_states)
         actions = np.vstack(actions)
         logp_ts = np.vstack(logp_ts)
 
         # Get Critic network predictions 
-        values = self.Critic.predict(states)
-        next_values = self.Critic.predict(next_states)
+        values = self.Critic.predict([stock_states, commodity_states, wallet_states])
+        next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
 
         # Compute discounted rewards and advantages
         #discounted_r = self.discount_rewards(rewards)
@@ -171,11 +200,18 @@ class PPOAgent:
         y_true = np.hstack([advantages, actions, logp_ts])
         
         # training Actor and Critic networks
-        a_loss = self.Actor.Actor.fit(states, y_true, epochs=self.epochs, verbose=0, shuffle=self.shuffle)
-        c_loss = self.Critic.Critic.fit([states, values], target, epochs=self.epochs, verbose=0, shuffle=self.shuffle)
+        a_loss = self.Actor.Actor.fit(
+            [stock_states, commodity_states, wallet_states], 
+            y_true, epochs=self.epochs, 
+            verbose=0, shuffle=self.shuffle
+        )
+        c_loss = self.Critic.Critic.fit(
+            [stock_states, commodity_states, wallet_states, values], 
+            target, epochs=self.epochs, verbose=0, shuffle=self.shuffle
+        )
 
         # calculate loss parameters (should be done in loss, but couldn't find working way how to do that with disabled eager execution)
-        pred = self.Actor.predict(states)
+        pred = self.Actor.predict([stock_states, commodity_states, wallet_states])
         log_std = -0.5 * np.ones(self.action_size, dtype=np.float32)
         logp = self.gaussian_likelihood(actions, pred, log_std)
         approx_kl = np.mean(logp_ts - logp)
@@ -218,8 +254,8 @@ class PPOAgent:
             SAVING = "SAVING"
             # decreaate learning rate every saved model
             #self.lr *= 0.99
-            #K.set_value(self.Actor.Actor.optimizer.learning_rate, self.lr)
-            #K.set_value(self.Critic.Critic.optimizer.learning_rate, self.lr)
+            #K.set_value(self.Actor.Actor.optimizer.lr, self.lr)
+            #K.set_value(self.Critic.Critic.optimizer.lr, self.lr)
         else:
             SAVING = ""
 
@@ -227,43 +263,75 @@ class PPOAgent:
     
     def run_batch(self):
         state = self.env.reset()
-        state = np.reshape(state, [1, self.state_size])
+        state = self.reshape_state(state)
         done, score, SAVING = False, 0, ''
         while True:
             # Instantiate or reset games memory
-            states, next_states, actions, rewards, dones, logp_ts = [], [], [], [], [], []
+            stock_states, commodity_states, wallet_states, \
+            next_stock_states, next_commodity_states, next_wallet_states, \
+            actions, rewards, dones, logp_ts = [], [], [], [], [], [], [], [], [], []
             for t in range(self.Training_batch):
-                self.env.render()
+                # self.env.render()
                 # Actor picks an action
                 action, logp_t = self.act(state)
                 # Retrieve new state, reward, and whether the state is terminal
                 next_state, reward, done, _ = self.env.step(action[0])
+                next_state = self.reshape_state(next_state)
                 # Memorize (state, next_states, action, reward, done, logp_ts) for training
-                states.append(state)
-                next_states.append(np.reshape(next_state, [1, self.state_size]))
+                stock_states.append(state[0])
+                commodity_states.append(state[1])
+                wallet_states.append(state[2])
+
+                next_stock_states.append(next_state[0])
+                next_commodity_states.append(next_state[1])
+                next_wallet_states.append(next_state[2])
+
                 actions.append(action)
                 rewards.append(reward)
                 dones.append(done)
                 logp_ts.append(logp_t[0])
                 # Update current state shape
-                state = np.reshape(next_state, [1, self.state_size])
+                state = next_state
                 score += reward
                 if done:
                     self.episode += 1
                     average, SAVING = self.PlotModel(score, self.episode)
                     print("episode: {}/{}, score: {}, average: {:.2f} {}".format(self.episode, self.EPISODES, score, average, SAVING))
                     self.writer.add_scalar(f'Workers:{1}/score_per_episode', score, self.episode)
-                    self.writer.add_scalar(f'Workers:{1}/learning_rate', self.lr, self.episode)
+                    self.writer.add_scalar(f'Workers:{1}/lr', self.lr, self.episode)
                     self.writer.add_scalar(f'Workers:{1}/average_score',  average, self.episode)
                     
                     state, done, score, SAVING = self.env.reset(), False, 0, ''
-                    state = np.reshape(state, [1, self.state_size])
+                    state = self.reshape_state(state)
 
-            self.replay(states, actions, rewards, dones, next_states, logp_ts)
+            self.replay(
+                stock_states, commodity_states, wallet_states, 
+                actions, rewards, dones, 
+                next_stock_states, next_commodity_states, next_wallet_states, 
+                logp_ts
+            )
             if self.episode >= self.EPISODES:
                 break
 
         self.env.close()
+
+    def reshape_states_beta(self, state):
+        stk_shp = 1
+        for stk in stock_observation.shape:
+            stk_shp = stk_shp*stk
+
+        cmdt_shp = 1
+        for cmdt in commodity_observation.shape:
+            cmdt_shp = cmdt_shp*cmdt
+
+        wllt_shp = 1
+        for wllt in wallet_observation.shape:
+            wllt_shp = wllt_shp*wllt
+            
+        stock_observation = np.reshape(stock_observation, (stk_shp,))
+        commodity_observation = np.reshape(commodity_observation, (cmdt_shp,))
+        # commodity_observation = np.reshape(commodity_observation, (1,) + commodity_observation.shape)
+        wallet_observation = np.reshape(wallet_observation, (wllt_shp,))
 
 
     def reshape_state(self, state):
@@ -302,9 +370,8 @@ class PPOAgent:
             
 
 if __name__ == "__main__":
-    # newest gym fixed bugs in 'BipedalWalker-v2' and now it's called 'BipedalWalker-v3'
     env_name = 'BipedalWalker-v3'
     agent = PPOAgent(env_name)
-    #agent.run_batch() # train as PPO
+    agent.run_batch() # train as PPO
     #agent.run_multiprocesses(num_worker = 16)  # train PPO multiprocessed (fastest)
-    agent.test()
+    # agent.test()

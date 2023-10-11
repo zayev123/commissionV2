@@ -39,4 +39,5 @@ class Critic_Model:
         return loss
 
     def predict(self, state):
-        return self.Critic.predict([state, np.zeros((state.shape[0], 1))])
+        [stock_state, commodity_state, wallet_state] = state
+        return self.Critic.predict([stock_state, commodity_state, wallet_state, np.zeros((stock_state.shape[0], 1))])
