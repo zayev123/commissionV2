@@ -68,7 +68,7 @@ class PPOAgent:
 
 
         self.state_size = state_size
-        self.EPISODES = 10 # total episodes to train through all environments
+        self.EPISODES = 20 # total episodes to train through all environments
         self.episode = 0 # used to track the episodes total count of episodes played through all thread environments
         self.max_average = 0 # when average score is above 0 model will be saved
         self.lr = 0.00025
@@ -95,15 +95,19 @@ class PPOAgent:
         # self.load() # uncomment to continue training from old weights
 
         # do not change bellow
-        self.log_std = -0.5 * np.ones(self.action_size, dtype=np.float32)
+        self.log_std = -0.1 * np.ones(self.action_size, dtype=np.float32)
         self.std = np.exp(self.log_std)
+
+        self.latest_state = None
+        self.previous_state = None
+        self.previous_actn = None
 
 
     def act(self, state):
         # Use the network to predict the next action to take, using the model
         pred = self.Actor.predict(state)
 
-        low, high = -10.0, 10.0 # -1 and 1 are boundaries of tanh
+        low, high = -1.0, 1.0 # -1 and 1 are boundaries of tanh
         action = pred + np.random.uniform(low, high, size=pred.shape) * self.std
         action = np.clip(action, low, high)
         
@@ -160,14 +164,6 @@ class PPOAgent:
             next_stock_states, next_commodity_states, next_wallet_states, 
             logp_ts
     ):
-        # reshape memory to appropriate shape for training
-        # print(len(states))
-        # print(states[0])
-        # print(len(states[0]))
-        # [stock_observation, commodity_observation, wallet_observation] = states[0]
-        # print(stock_observation)
-        # print(commodity_observation)
-        # print(wallet_observation)
         stock_states = np.vstack(stock_states)
         commodity_states = np.vstack(commodity_states)
         wallet_states = np.vstack(wallet_states)
@@ -250,7 +246,7 @@ class PPOAgent:
         # saving best models
         if self.average_[-1] >= self.max_average and save:
             self.max_average = self.average_[-1]
-            # self.save()
+            self.save()
             SAVING = "SAVING"
             # decreaate learning rate every saved model
             #self.lr *= 0.99
@@ -311,6 +307,7 @@ class PPOAgent:
                 logp_ts
             )
             if self.episode >= self.EPISODES:
+                self.episode = 0
                 break
 
         self.env.close()
@@ -347,6 +344,7 @@ class PPOAgent:
     
     def test(self, test_episodes = 100):#evaluate
         self.load()
+        latest_state = None
         for e in range(1):
             state = self.env.reset()
             state = self.reshape_state(state)
@@ -357,16 +355,20 @@ class PPOAgent:
             for i in range(100):
             # while not done:
                 # self.env.render()
+                self.previous_state = copy.deepcopy(state)
                 action = self.Actor.predict(state)[0]
-                print(action)
+                self.previous_actn = action
                 state, reward, done, _ = self.env.step(action)
                 state = self.reshape_state(state)
+                latest_state = state
                 score += reward
                 if done:
                     average, SAVING = self.PlotModel(score, e, save=False)
                     print("episode: {}/{}, score: {}, average{}".format(e, test_episodes, score, average))
                     break
         self.env.close()
+        self.latest_state = latest_state
+        # print(self.env.t)
             
 
 if __name__ == "__main__":

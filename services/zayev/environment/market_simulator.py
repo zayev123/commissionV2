@@ -29,8 +29,8 @@ class MarketSimulator(gym.Env):
 
 
 
-        lower_bounds = [-1000] * no_of_stocks
-        upper_bounds = [1000] * no_of_stocks
+        lower_bounds = [-1] * no_of_stocks
+        upper_bounds = [1] * no_of_stocks
 
         actn_shape = spaces.Box(low=np.array(lower_bounds), high=np.array(upper_bounds))
                 
@@ -189,6 +189,7 @@ class MarketSimulator(gym.Env):
     
     def step(self, action):
         # if we took an action, we were in state 1
+        action = action*1000
         self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         self.__step_no = self.__step_no + 1
         (stock_state, commodity_state, wallet_state) = self.get_the_state()
@@ -302,7 +303,7 @@ class MarketSimulator(gym.Env):
             stock_state[index][7] = new_shares[index]
             new_portfolio_value = new_portfolio_value + stock_state[index][7]*stock_state[index][0]
 
-        reward = current_portfolio_value - old_portfolio_value #+ penalty
+        reward = current_portfolio_value - old_portfolio_value + penalty
 
         self.state = (stock_state, commodity_state, wallet_state)
         info = {}
