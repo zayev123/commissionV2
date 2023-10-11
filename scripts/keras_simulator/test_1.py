@@ -168,12 +168,12 @@ class Test1:
     def tes2(self):
         (stock_space, commodity_space, wallet_space) = self.myEnv.observation_space
         stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
-        stock_input = Flatten()(stock_input)
         commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
-        commodity_input = Flatten()(commodity_input)
         wallet_input = Input(shape=wallet_space.shape, name='wallet_observation_input')
-        wallet_input = Flatten()(wallet_input)
-        obs_input = Concatenate(name='ppo_input')([stock_input, commodity_input, wallet_input])
+        flattened_stock_input = Flatten()(stock_input)
+        flattened_commodity_input = Flatten()(commodity_input)
+        flattened_wallet_input = Flatten()(wallet_input)
+        obs_input = Concatenate(name='ppo_input')([flattened_stock_input, flattened_commodity_input, flattened_wallet_input])
         X_input = Flatten()(obs_input)
         self.action_shape = self.myEnv.action_space.shape[0]
         

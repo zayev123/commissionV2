@@ -53,13 +53,17 @@ class PPOAgent:
         
         self.action_size = self.env.action_space.shape[0]
         (stock_space, commodity_space, wallet_space) = self.env.observation_space
-        state_size = 1
+        stk_size = 1
         for stck_size in stock_space.shape:
-            state_size = state_size * stck_size
+            stk_size = stk_size * stck_size
+        cmdt_siz = 1
         for cmmdty_size in commodity_space.shape:
-            state_size = state_size * cmmdty_size
+            cmdt_siz = cmdt_siz * cmmdty_size
+        wlt_sz = 1
         for wllt_size in wallet_space.shape:
-            state_size = state_size * wllt_size
+            wlt_sz = wlt_sz * wllt_size
+        
+        state_size = stk_size +cmdt_siz + wllt_size
 
 
         self.state_size = state_size
@@ -84,9 +88,10 @@ class PPOAgent:
         self.Critic = Critic_Model(self.env, lr=self.lr, optimizer = self.optimizer)
         
         service_path = "/Users/mirbilal/Desktop/MobCommission/commissionV2/services/zayev"
+        # service_path = "."
         self.Actor_name = f"{service_path}/weightings/actor.h5"
         self.Critic_name = f"{service_path}/weightings/critic.h5"
-        #self.load() # uncomment to continue training from old weights
+        # self.load() # uncomment to continue training from old weights
 
         # do not change bellow
         self.log_std = -0.5 * np.ones(self.action_size, dtype=np.float32)
@@ -97,7 +102,7 @@ class PPOAgent:
         # Use the network to predict the next action to take, using the model
         pred = self.Actor.predict(state)
 
-        low, high = -1.0, 1.0 # -1 and 1 are boundaries of tanh
+        low, high = -10.0, 10.0 # -1 and 1 are boundaries of tanh
         action = pred + np.random.uniform(low, high, size=pred.shape) * self.std
         action = np.clip(action, low, high)
         
@@ -209,7 +214,7 @@ class PPOAgent:
         # saving best models
         if self.average_[-1] >= self.max_average and save:
             self.max_average = self.average_[-1]
-            self.save()
+            # self.save()
             SAVING = "SAVING"
             # decreaate learning rate every saved model
             #self.lr *= 0.99
@@ -222,7 +227,7 @@ class PPOAgent:
     
     def run_batch(self):
         state = self.env.reset()
-        state = np.reshape(state, [1, self.state_size[0]])
+        state = np.reshape(state, [1, self.state_size])
         done, score, SAVING = False, 0, ''
         while True:
             # Instantiate or reset games memory
@@ -235,13 +240,13 @@ class PPOAgent:
                 next_state, reward, done, _ = self.env.step(action[0])
                 # Memorize (state, next_states, action, reward, done, logp_ts) for training
                 states.append(state)
-                next_states.append(np.reshape(next_state, [1, self.state_size[0]]))
+                next_states.append(np.reshape(next_state, [1, self.state_size]))
                 actions.append(action)
                 rewards.append(reward)
                 dones.append(done)
                 logp_ts.append(logp_t[0])
                 # Update current state shape
-                state = np.reshape(next_state, [1, self.state_size[0]])
+                state = np.reshape(next_state, [1, self.state_size])
                 score += reward
                 if done:
                     self.episode += 1
@@ -252,7 +257,7 @@ class PPOAgent:
                     self.writer.add_scalar(f'Workers:{1}/average_score',  average, self.episode)
                     
                     state, done, score, SAVING = self.env.reset(), False, 0, ''
-                    state = np.reshape(state, [1, self.state_size[0]])
+                    state = np.reshape(state, [1, self.state_size])
 
             self.replay(states, actions, rewards, dones, next_states, logp_ts)
             if self.episode >= self.EPISODES:
@@ -261,18 +266,33 @@ class PPOAgent:
         self.env.close()
 
 
+    def reshape_state(self, state):
+        stock_observation, commodity_observation, wallet_observation = state
+
+        # Reshape and preprocess each component
+        stock_observation = np.reshape(stock_observation, (1,) + stock_observation.shape)
+        commodity_observation = np.reshape(commodity_observation, (1,) + commodity_observation.shape)
+        wallet_observation = np.reshape(wallet_observation, (1,) + wallet_observation.shape)
+
+        return [stock_observation, commodity_observation, wallet_observation]
+
+    
     def test(self, test_episodes = 100):#evaluate
         self.load()
-        for e in range(101):
+        for e in range(1):
             state = self.env.reset()
-            state = np.reshape(state, [1, self.state_size[0]])
-            done = False
+            state = self.reshape_state(state)
+
+            # Predict an action from the actor model            done = False
             score = 0
-            while not done:
+            i = 0
+            for i in range(100):
+            # while not done:
                 # self.env.render()
                 action = self.Actor.predict(state)[0]
+                print(action)
                 state, reward, done, _ = self.env.step(action)
-                state = np.reshape(state, [1, self.state_size[0]])
+                state = self.reshape_state(state)
                 score += reward
                 if done:
                     average, SAVING = self.PlotModel(score, e, save=False)

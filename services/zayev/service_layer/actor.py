@@ -19,12 +19,12 @@ class Actor_Model:
         # self.env = env
         (stock_space, commodity_space, wallet_space) = self.env.observation_space
         stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
-        stock_input = Flatten()(stock_input)
         commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
-        commodity_input = Flatten()(commodity_input)
         wallet_input = Input(shape=wallet_space.shape, name='wallet_observation_input')
-        wallet_input = Flatten()(wallet_input)
-        obs_input = Concatenate(name='ppo_input')([stock_input, commodity_input, wallet_input])
+        flattened_stock_input = Flatten()(stock_input)
+        flattened_commodity_input = Flatten()(commodity_input)
+        flattened_wallet_input = Flatten()(wallet_input)
+        obs_input = Concatenate(name='ppo_input')([flattened_stock_input, flattened_commodity_input, flattened_wallet_input])
         X_input = Flatten()(obs_input)
         self.action_shape = self.env.action_space.shape[0]
         
@@ -34,7 +34,7 @@ class Actor_Model:
         output = Dense(self.action_shape, activation="tanh")(X)
 
         self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
-        self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=Adam())
+        self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=optimizer(lr=lr))
         #print(self.Actor.summary())
 
     def ppo_loss_continuous(self, y_true, y_pred):
