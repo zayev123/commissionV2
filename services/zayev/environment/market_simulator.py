@@ -11,12 +11,15 @@ import pandas as pd
 import pytz
 
 class MarketSimulator(gym.Env):
-    def __init__(self, env_config: dict=None):
+    def __init__(self, env_config: dict=None, data_frames = None):
         self.env_config = env_config
         self.__initial_balance = 100000
         self.action_space = self.__get_actn_shape()
         (stock_observation_space, commodity_observation_space, wallet_observation_space) = self.__get_obs_shape() 
         self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space, wallet_observation_space))
+        self.data_frames = data_frames
+        self.max_episode_steps = self.env_config.get("max_episode_steps")
+        self.__print_output = self.env_config.get("print_output")
         self.reset()
         
     
@@ -111,68 +114,70 @@ class MarketSimulator(gym.Env):
         the_current_time_step = self.env_config.get("the_current_time_step")
         __last_time_step = the_current_time_step + relativedelta(hours=505)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
+        self.__last_time_step = pytz.utc.localize(datetime.strptime(str(__last_time_step), '%Y-%m-%d %H:%M:%S'))
         str_time_step = str(self.the_current_time_step)
         self.__step_no = 0
-        self.max_episode_steps = self.env_config.get("max_episode_steps")
-        self.__print_output = self.env_config.get("print_output")
+        if self.data_frames!= None:
+            self.stck_df = self.data_frames[0]
+            self.cmmdties_df = self.data_frames[1]
+            self.stcks_buffer_df = self.data_frames[2]
+            self.cmmdties_buffer_df = self.data_frames[3]
+        else:
+            str_last_time_step = str(self.__last_time_step)
+            db_params = self.env_config.get("db_params")
+            self.db_conn = psycopg2.connect(**db_params)
+            self.cursor = self.db_conn.cursor()
 
-        self.__last_time_step = pytz.utc.localize(datetime.strptime(str(__last_time_step), '%Y-%m-%d %H:%M:%S'))
-        str_last_time_step = str(self.__last_time_step)
+            stcks_query = """
+                SELECT *
+                FROM simulated_stocks
+            """
+            self.cursor.execute(stcks_query)
+            stck_data = self.cursor.fetchall()
+            column_names = [desc[0] for desc in self.cursor.description]
+            self.stck_df = pd.DataFrame(stck_data, columns=column_names) 
+            # self.stck_df = self.stck_df.to_dict(orient='records')
 
-        db_params = self.env_config.get("db_params")
-        self.db_conn = psycopg2.connect(**db_params)
-        self.cursor = self.db_conn.cursor()
+            stcks_buffer_query = f"""
+                SELECT simulated_stocks_buffers.*, simulated_stocks.index
+                FROM simulated_stocks_buffers 
+                JOIN simulated_stocks on simulated_stocks.id = simulated_stocks_buffers.stock_id
+                WHERE 
+                captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
+            """
+            self.cursor.execute(stcks_buffer_query)
+            stcks_buffer_data = self.cursor.fetchall()
+            column_names = [desc[0] for desc in self.cursor.description]
+            self.stcks_buffer_df = pd.DataFrame(stcks_buffer_data, columns=column_names)
+            # self.stcks_buffer_df = self.stcks_buffer_df.to_dict(orient='records')
 
-        stcks_query = """
-            SELECT *
-            FROM simulated_stocks
-        """
-        self.cursor.execute(stcks_query)
-        stck_data = self.cursor.fetchall()
-        column_names = [desc[0] for desc in self.cursor.description]
-        self.stck_df = pd.DataFrame(stck_data, columns=column_names) 
-        # self.stck_df = self.stck_df.to_dict(orient='records')
+            cmmdties_buffer_query = f"""
+                SELECT simulated_commodities_buffers.*, simulated_commodities.index
+                FROM simulated_commodities_buffers 
+                JOIN simulated_commodities on simulated_commodities.id = simulated_commodities_buffers.commodity_id
+                WHERE 
+                captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
+            """
+            self.cursor.execute(cmmdties_buffer_query)
+            cmmdties_buffer_data = self.cursor.fetchall()
+            column_names = [desc[0] for desc in self.cursor.description]
+            self.cmmdties_buffer_df = pd.DataFrame(cmmdties_buffer_data, columns=column_names)
+            # self.cmmdties_buffer_df = self.cmmdties_buffer_df.to_dict(orient='records')
 
-        stcks_buffer_query = f"""
-            SELECT simulated_stocks_buffers.*, simulated_stocks.index
-            FROM simulated_stocks_buffers 
-            JOIN simulated_stocks on simulated_stocks.id = simulated_stocks_buffers.stock_id
-            WHERE 
-            captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
-        """
-        self.cursor.execute(stcks_buffer_query)
-        stcks_buffer_data = self.cursor.fetchall()
-        column_names = [desc[0] for desc in self.cursor.description]
-        self.stcks_buffer_df = pd.DataFrame(stcks_buffer_data, columns=column_names)
-        # self.stcks_buffer_df = self.stcks_buffer_df.to_dict(orient='records')
+            cmmdties_query = """
+                SELECT *
+                FROM simulated_commodities
+            """
+            self.cursor.execute(cmmdties_query)
+            cmmdties_data = self.cursor.fetchall()
+            column_names = [desc[0] for desc in self.cursor.description]
+            self.cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names) 
+            # self.cmmdties_df = self.cmmdties_df.to_dict(orient='records')
 
-        cmmdties_buffer_query = f"""
-            SELECT simulated_commodities_buffers.*, simulated_commodities.index
-            FROM simulated_commodities_buffers 
-            JOIN simulated_commodities on simulated_commodities.id = simulated_commodities_buffers.commodity_id
-            WHERE 
-            captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
-        """
-        self.cursor.execute(cmmdties_buffer_query)
-        cmmdties_buffer_data = self.cursor.fetchall()
-        column_names = [desc[0] for desc in self.cursor.description]
-        self.cmmdties_buffer_df = pd.DataFrame(cmmdties_buffer_data, columns=column_names)
-        # self.cmmdties_buffer_df = self.cmmdties_buffer_df.to_dict(orient='records')
-
-        cmmdties_query = """
-            SELECT *
-            FROM simulated_commodities
-        """
-        self.cursor.execute(cmmdties_query)
-        cmmdties_data = self.cursor.fetchall()
-        column_names = [desc[0] for desc in self.cursor.description]
-        self.cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names) 
-        # self.cmmdties_df = self.cmmdties_df.to_dict(orient='records')
-
-        self.cursor.close()
-        self.db_conn.close()
-        self.state = self.get_the_state(init=True)
+            self.cursor.close()
+            self.db_conn.close()
         #return <obs>
+        self.state = self.get_the_state(init=True)
         return self.state
                            
     def __get_action_change(self, action, index):

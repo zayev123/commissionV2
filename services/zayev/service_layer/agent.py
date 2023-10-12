@@ -1,4 +1,9 @@
+from datetime import datetime
 import os
+
+from matplotlib.dates import relativedelta
+import psycopg2
+import pytz
 
 from services.zayev.environment.market_simulator import MarketSimulator
 from services.zayev.service_layer.env_process import EnvProcess
@@ -20,6 +25,7 @@ from keras.optimizers import RMSprop, Adagrad, Adadelta
 from keras.optimizers.legacy import Adam
 from keras import backend as K
 import copy
+import pandas as pd
 
 from threading import Thread, Lock
 from multiprocessing import Process, Pipe
@@ -249,6 +255,7 @@ class PPOAgent:
         state = self.env.reset()
         state = self.reshape_state(state)
         done, score, SAVING = False, 0, ''
+        is_break = False
         while True:
             # Instantiate or reset games memory
             stock_states, commodity_states, wallet_states, \
@@ -287,6 +294,8 @@ class PPOAgent:
                     
                     state, done, score, SAVING = self.env.reset(), False, 0, ''
                     state = self.reshape_state(state)
+                    if  average < -10000:
+                        is_break = True
 
             self.replay(
                 stock_states, commodity_states, wallet_states, 
@@ -296,6 +305,9 @@ class PPOAgent:
             )
             if self.episode >= self.EPISODES:
                 self.episode = 0
+                break
+
+            if is_break:
                 break
 
         self.env.close()
@@ -359,11 +371,14 @@ class PPOAgent:
         # print(self.env.t)
 
     def run_multiprocesses(self, num_worker = 4):
+        self.episode = 0
+        self.EPISODES = 80
         works, parent_conns, child_conns = [], [], []
+        dfs = self.get_data_frames()
         for idx in range(num_worker):
             parent_conn, child_conn = Pipe()
             config = copy.deepcopy(self.env_config)
-            work = EnvProcess(idx, child_conn, config)
+            work = EnvProcess(idx, child_conn, config, dfs)
             work.start()
             works.append(work)
             parent_conns.append(parent_conn)
@@ -396,9 +411,9 @@ class PPOAgent:
         while self.episode < self.EPISODES:
             # get batch of action's and log_pi's
             action, logp_pi = self.act([
-                worker_states["stock_tt"], 
-                worker_states["commodity_tt"], 
-                worker_states["wallet_tt"]
+                np.vstack(worker_states["stock_tt"]), 
+                np.vstack(worker_states["commodity_tt"]), 
+                np.vstack(worker_states["wallet_tt"])
             ])
             
             for worker_id, parent_conn in enumerate(parent_conns):
@@ -409,10 +424,10 @@ class PPOAgent:
             for worker_id, parent_conn in enumerate(parent_conns):
                 next_state, reward, done, _ = parent_conn.recv()
                 next_state = self.reshape_state(next_state)
-
-                stock_states[worker_id].append(state["stock_tt"][worker_id])
-                commodity_states[worker_id].append(state["commodity_tt"][worker_id])
-                wallet_states[worker_id].append(state["wallet_tt"][worker_id])
+                
+                stock_states[worker_id].append(worker_states["stock_tt"][worker_id])
+                commodity_states[worker_id].append(worker_states["commodity_tt"][worker_id])
+                wallet_states[worker_id].append(worker_states["wallet_tt"][worker_id])
                 next_stock_states[worker_id].append(next_state[0])
                 next_commodity_states[worker_id].append(next_state[1])
                 next_wallet_states[worker_id].append(next_state[2])
@@ -458,6 +473,66 @@ class PPOAgent:
             work.terminate()
             print('TERMINATED:', work)
             work.join()
+
+    def get_data_frames(self):
+        the_current_time_step = self.env_config.get("the_current_time_step")
+        __last_time_step = the_current_time_step + relativedelta(hours=505)
+        the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
+        str_time_step = str(the_current_time_step)
+
+        __last_time_step = pytz.utc.localize(datetime.strptime(str(__last_time_step), '%Y-%m-%d %H:%M:%S'))
+        str_last_time_step = str(__last_time_step)
+
+        db_params = self.env_config.get("db_params")
+        db_conn = psycopg2.connect(**db_params)
+        cursor = db_conn.cursor()
+
+        stcks_query = """
+            SELECT *
+            FROM simulated_stocks
+        """
+        cursor.execute(stcks_query)
+        stck_data = cursor.fetchall()
+        column_names = [desc[0] for desc in cursor.description]
+        stck_df = pd.DataFrame(stck_data, columns=column_names) 
+        # self.stck_df = self.stck_df.to_dict(orient='records')
+
+        stcks_buffer_query = f"""
+            SELECT simulated_stocks_buffers.*, simulated_stocks.index
+            FROM simulated_stocks_buffers 
+            JOIN simulated_stocks on simulated_stocks.id = simulated_stocks_buffers.stock_id
+            WHERE 
+            captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
+        """
+        cursor.execute(stcks_buffer_query)
+        stcks_buffer_data = cursor.fetchall()
+        column_names = [desc[0] for desc in cursor.description]
+        stcks_buffer_df = pd.DataFrame(stcks_buffer_data, columns=column_names)
+        # stcks_buffer_df = stcks_buffer_df.to_dict(orient='records')
+
+        cmmdties_buffer_query = f"""
+            SELECT simulated_commodities_buffers.*, simulated_commodities.index
+            FROM simulated_commodities_buffers 
+            JOIN simulated_commodities on simulated_commodities.id = simulated_commodities_buffers.commodity_id
+            WHERE 
+            captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
+        """
+        cursor.execute(cmmdties_buffer_query)
+        cmmdties_buffer_data = cursor.fetchall()
+        column_names = [desc[0] for desc in cursor.description]
+        cmmdties_buffer_df = pd.DataFrame(cmmdties_buffer_data, columns=column_names)
+        # cmmdties_buffer_df = cmmdties_buffer_df.to_dict(orient='records')
+
+        cmmdties_query = """
+            SELECT *
+            FROM simulated_commodities
+        """
+        cursor.execute(cmmdties_query)
+        cmmdties_data = cursor.fetchall()
+        column_names = [desc[0] for desc in cursor.description]
+        cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names)
+
+        return [stck_df, cmmdties_df, stcks_buffer_df, cmmdties_buffer_df] 
             
 
 if __name__ == "__main__":
