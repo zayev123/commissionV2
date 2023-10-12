@@ -1,6 +1,7 @@
 import os
 
 from services.zayev.environment.market_simulator import MarketSimulator
+from services.zayev.service_layer.env_process import EnvProcess
 
 from .actor import Actor_Model
 from services.zayev.service_layer.critic import Critic_Model
@@ -33,23 +34,11 @@ if len(gpus) > 0:
 
 class PPOAgent:
     # PPO Main Optimization Algorithm
-    def __init__(self, current_time_step):
+    def __init__(self, env_config):
         # Initialization
         # Environment and PPO parameters
-        self.env_name = "market"  
-        db_params = {
-            'database': environ.get("POSTGRES_DB"),
-            'user': environ.get("POSTGRES_USER"),
-            'password': environ.get("POSTGRES_PASSWORD"),
-            'host': environ.get("DB_HOST"),
-            'port': environ.get("DB_PORT"),
-        }
-        env_config = {
-            "db_params": db_params, 
-            "max_episode_steps": 150, 
-            "the_current_time_step": current_time_step,
-            "print_output": False
-        }   
+        self.env_name = "market"   
+        self.env_config = env_config
         self.env = MarketSimulator(env_config=env_config)
         
         self.action_size = self.env.action_space.shape[0]
@@ -64,10 +53,8 @@ class PPOAgent:
         for wllt_size in wallet_space.shape:
             wlt_sz = wlt_sz * wllt_size
         
-        state_size = stk_size +cmdt_siz + wllt_size
 
 
-        self.state_size = state_size
         self.EPISODES = 20 # total episodes to train through all environments
         self.episode = 0 # used to track the episodes total count of episodes played through all thread environments
         self.max_average = 0 # when average score is above 0 model will be saved
@@ -77,6 +64,7 @@ class PPOAgent:
         self.Training_batch = 100
         #self.optimizer = RMSprop
         self.optimizer = Adam
+        self.test_steps = min(self.Training_batch, env_config.get("test_steps", 1))
 
         self.replay_count = 0
         self.writer = SummaryWriter(comment="_"+self.env_name+"_"+self.optimizer.__name__+"_"+str(self.lr))
@@ -352,12 +340,12 @@ class PPOAgent:
             # Predict an action from the actor model            done = False
             score = 0
             i = 0
-            for i in range(100):
+            for i in range(self.test_steps):
             # while not done:
                 # self.env.render()
                 self.previous_state = copy.deepcopy(state)
                 action = self.Actor.predict(state)[0]
-                self.previous_actn = action
+                self.previous_actn = copy.deepcopy(action)
                 state, reward, done, _ = self.env.step(action)
                 state = self.reshape_state(state)
                 latest_state = state
@@ -369,6 +357,107 @@ class PPOAgent:
         self.env.close()
         self.latest_state = latest_state
         # print(self.env.t)
+
+    def run_multiprocesses(self, num_worker = 4):
+        works, parent_conns, child_conns = [], [], []
+        for idx in range(num_worker):
+            parent_conn, child_conn = Pipe()
+            config = copy.deepcopy(self.env_config)
+            work = EnvProcess(idx, child_conn, config)
+            work.start()
+            works.append(work)
+            parent_conns.append(parent_conn)
+            child_conns.append(child_conn)
+
+        stock_states =   [[] for _ in range(num_worker)]
+        commodity_states =   [[] for _ in range(num_worker)]
+        wallet_states =   [[] for _ in range(num_worker)]
+        next_stock_states =   [[] for _ in range(num_worker)]
+        next_commodity_states =   [[] for _ in range(num_worker)]
+        next_wallet_states =   [[] for _ in range(num_worker)]
+        actions =       [[] for _ in range(num_worker)]
+        rewards =       [[] for _ in range(num_worker)]
+        dones =         [[] for _ in range(num_worker)]
+        logp_ts =       [[] for _ in range(num_worker)]
+        score =         [0 for _ in range(num_worker)]
+
+        state = [0 for _ in range(num_worker)]
+        worker_states = {
+            "stock_tt": [],
+            "commodity_tt": [],
+            "wallet_tt": []
+        }
+        for worker_id, parent_conn in enumerate(parent_conns):
+            temp_state = self.reshape_state(parent_conn.recv())
+            worker_states["stock_tt"].append(temp_state[0])
+            worker_states["commodity_tt"].append(temp_state[1])
+            worker_states["wallet_tt"].append(temp_state[2])
+
+        while self.episode < self.EPISODES:
+            # get batch of action's and log_pi's
+            action, logp_pi = self.act([
+                worker_states["stock_tt"], 
+                worker_states["commodity_tt"], 
+                worker_states["wallet_tt"]
+            ])
+            
+            for worker_id, parent_conn in enumerate(parent_conns):
+                parent_conn.send(action[worker_id])
+                actions[worker_id].append(action[worker_id])
+                logp_ts[worker_id].append(logp_pi[worker_id])
+
+            for worker_id, parent_conn in enumerate(parent_conns):
+                next_state, reward, done, _ = parent_conn.recv()
+                next_state = self.reshape_state(next_state)
+
+                stock_states[worker_id].append(state["stock_tt"][worker_id])
+                commodity_states[worker_id].append(state["commodity_tt"][worker_id])
+                wallet_states[worker_id].append(state["wallet_tt"][worker_id])
+                next_stock_states[worker_id].append(next_state[0])
+                next_commodity_states[worker_id].append(next_state[1])
+                next_wallet_states[worker_id].append(next_state[2])
+                rewards[worker_id].append(reward)
+                dones[worker_id].append(done)
+                state[worker_id] = next_state
+                score[worker_id] += reward
+
+                if done:
+                    average, SAVING = self.PlotModel(score[worker_id], self.episode)
+                    print("episode: {}/{}, worker: {}, score: {}, average: {:.2f} {}".format(self.episode, self.EPISODES, worker_id, score[worker_id], average, SAVING))
+                    self.writer.add_scalar(f'Workers:{num_worker}/score_per_episode', score[worker_id], self.episode)
+                    self.writer.add_scalar(f'Workers:{num_worker}/learning_rate', self.lr, self.episode)
+                    self.writer.add_scalar(f'Workers:{num_worker}/average_score',  average, self.episode)
+                    score[worker_id] = 0
+                    if(self.episode < self.EPISODES):
+                        self.episode += 1
+                        
+                        
+            for worker_id in range(num_worker):
+                if len(stock_states[worker_id]) >= self.Training_batch:
+                    self.replay(
+                        stock_states[worker_id], commodity_states[worker_id], wallet_states[worker_id],
+                        actions[worker_id], rewards[worker_id], dones[worker_id], 
+                        next_stock_states[worker_id], next_commodity_states[worker_id], next_wallet_states[worker_id], 
+                        logp_ts[worker_id]
+                    )
+
+                    stock_states[worker_id] = []
+                    commodity_states[worker_id] = []
+                    wallet_states[worker_id] = []
+                    next_stock_states[worker_id] = []
+                    next_commodity_states[worker_id] = []
+                    next_wallet_states[worker_id] = []
+                    actions[worker_id] = []
+                    rewards[worker_id] = []
+                    dones[worker_id] = []
+                    logp_ts[worker_id] = []
+
+        # terminating processes after a while loop
+        works.append(work)
+        for work in works:
+            work.terminate()
+            print('TERMINATED:', work)
+            work.join()
             
 
 if __name__ == "__main__":

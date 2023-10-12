@@ -1,8 +1,9 @@
+import copy
 from datetime import datetime
 from os import environ
 from gymnasium import Space
 from keras import Model
-from keras.layers import Dense,Flatten, Input, Concatenate
+from keras.layers import Dense,Flatten, Input, Concatenate, Lambda
 from keras import backend as K
 from matplotlib.dates import relativedelta
 import tensorflow as tf
@@ -32,11 +33,31 @@ class Actor_Model:
         X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         X = Dense(64, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         output = Dense(self.action_shape, activation="tanh")(X)
+        scaled_output = Lambda(lambda x: self.custom_activation(x))(output)
 
-        self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
+        self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = scaled_output)
         self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=optimizer(lr=lr))
         # print(self.Actor.summary())
 
+    def custom_activation(self, x):
+        neg_mask = x < 0
+        neg_sum = tf.reduce_sum(tf.boolean_mask(x, neg_mask))
+
+        pos_mask = x > 0
+        pos_values_sum = tf.reduce_sum(tf.boolean_mask(x, pos_mask))
+
+        ratio_a = tf.abs(-1 - neg_sum) / tf.abs(neg_sum)
+        ratio_b = 1- ratio_a
+
+        x = tf.where(neg_mask & (neg_sum<-1), x * ratio_b, x)
+
+        # Reduce the positive sum if it's greater than the adjusted neg_sum
+        ratio_c = tf.abs(tf.maximum(-1.0, neg_sum)) / pos_values_sum
+
+        x = tf.where(pos_mask, x * ratio_c, x)
+
+        return x
+    
     def ppo_loss_continuous(self, y_true, y_pred):
         advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]
         LOSS_CLIPPING = 0.2

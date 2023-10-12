@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 import gymnasium as gym
 from matplotlib.dates import relativedelta
@@ -21,6 +22,8 @@ class MarketSimulator(gym.Env):
     
     def __get_actn_shape(self):
         no_of_stocks = 5
+        wallet = 1
+        no_of_actions = no_of_stocks + wallet
 
         # actns = [list(range(-1000,1001,1)) for i in range(no_of_stocks)]
         # num_possible_values = 2001  # 2001 values from -1000 to 1000 (inclusive)
@@ -29,8 +32,8 @@ class MarketSimulator(gym.Env):
 
 
 
-        lower_bounds = [-1] * no_of_stocks
-        upper_bounds = [1] * no_of_stocks
+        lower_bounds = [-1] * no_of_actions
+        upper_bounds = [1] * no_of_actions
 
         actn_shape = spaces.Box(low=np.array(lower_bounds), high=np.array(upper_bounds))
                 
@@ -189,7 +192,7 @@ class MarketSimulator(gym.Env):
     
     def step(self, action):
         # if we took an action, we were in state 1
-        action = action*1000
+        copied_action = copy.deepcopy(action)
         self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         self.__step_no = self.__step_no + 1
         (stock_state, commodity_state, wallet_state) = self.get_the_state()
@@ -201,8 +204,8 @@ class MarketSimulator(gym.Env):
             print(wallet_state)
 
 
-        actions = action
-        no_of_actions = len(actions)
+        no_of_actions = len(action)
+        no_of_actions = no_of_actions - 1
         wallet_balance = wallet_state[0]
         old_portfolio_value = wallet_balance
         total_freed_capital = wallet_balance
@@ -214,6 +217,35 @@ class MarketSimulator(gym.Env):
         new_shares = {}
         flagged = False
         done = False
+
+        for index in range(no_of_actions):
+            stck_price = stock_state[index][0]
+            old_stock_price = stock_state[index][6]
+            current_no_of_shares = stock_state[index][7]
+
+            old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
+            current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
+
+        for index in range(no_of_actions):
+            bid_vol = stock_state[index][2]
+            action_amount = copied_action[index]*current_portfolio_value
+
+            bid_price = stock_state[index][3]
+            offer_price = stock_state[index][5]
+            if action_amount > 0:
+                change_in_shares = action_amount/offer_price       
+            else:
+                change_in_shares = action_amount/bid_price
+
+            action[index] = change_in_shares
+            if self.__print_output:
+                print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
+
+        if self.__print_output:
+            print("nw_ports", current_portfolio_value)
+            print("old_actions", copied_action)
+            print("new_actions", action)
+
         for index in range(no_of_actions):
             stck_price = stock_state[index][0]
             stck_vol = stock_state[index][1]
@@ -224,14 +256,9 @@ class MarketSimulator(gym.Env):
             old_stock_price = stock_state[index][6]
             current_no_of_shares = stock_state[index][7]
 
-            change_in_shares = self.__get_action_change(action, index)
-
-            old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
-            current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
+            change_in_shares = action[index]
             
             if change_in_shares < 0:
-                if self.__print_output:
-                    print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
 
                 if bid_vol + change_in_shares < 0:
                     penalty = penalty + bid_vol + change_in_shares
@@ -265,8 +292,6 @@ class MarketSimulator(gym.Env):
             change_in_shares = self.__get_action_change(action, index)
                 
             if change_in_shares > 0:
-                if self.__print_output:
-                    print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
                 if offer_vol - change_in_shares < 0:
                     penalty = penalty + offer_vol - change_in_shares
                     flagged = True
@@ -303,7 +328,7 @@ class MarketSimulator(gym.Env):
             stock_state[index][7] = new_shares[index]
             new_portfolio_value = new_portfolio_value + stock_state[index][7]*stock_state[index][0]
 
-        reward = current_portfolio_value - old_portfolio_value + penalty
+        reward = current_portfolio_value - old_portfolio_value #+ penalty
 
         self.state = (stock_state, commodity_state, wallet_state)
         info = {}
