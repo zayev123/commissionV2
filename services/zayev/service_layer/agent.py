@@ -4,6 +4,12 @@ import os
 from matplotlib.dates import relativedelta
 import psycopg2
 import pytz
+from apps.environment_simulator.models import (
+    SimulatedCommodity,
+    SimulatedStock,
+    SimulatedCommodityBuffer,
+    SimulatedStockBuffer
+)
 
 from services.zayev.environment.market_simulator import MarketSimulator
 from services.zayev.service_layer.env_process import EnvProcess
@@ -374,7 +380,7 @@ class PPOAgent:
         self.episode = 0
         self.EPISODES = 80
         works, parent_conns, child_conns = [], [], []
-        dfs = self.get_data_frames()
+        dfs = self.get_db_data_frames()
         for idx in range(num_worker):
             parent_conn, child_conn = Pipe()
             config = copy.deepcopy(self.env_config)
@@ -473,6 +479,13 @@ class PPOAgent:
             work.terminate()
             print('TERMINATED:', work)
             work.join()
+
+    def get_db_data_frames(self):
+        cmmdties_df = pd.DataFrame(list(SimulatedCommodity.objects.all().values()))
+        stck_df = pd.DataFrame(list(SimulatedStock.objects.all().values()))
+        cmmdties_buffer_df = pd.DataFrame(list(SimulatedCommodityBuffer.objects.all().values()))
+        stcks_buffer_df = pd.DataFrame(list(SimulatedStockBuffer.objects.all().values()))
+        return [stck_df, cmmdties_df, stcks_buffer_df, cmmdties_buffer_df]
 
     def get_data_frames(self):
         the_current_time_step = self.env_config.get("the_current_time_step")
