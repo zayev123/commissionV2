@@ -65,7 +65,7 @@ class PPOAgent:
         self.episode = 0 # used to track the episodes total count of episodes played through all thread environments
         self.max_average = 0 # when average score is above 0 model will be saved
         self.lr = 0.00025
-        self.epochs = 10 # training epochs
+        self.epochs = 20 # training epochs
         self.shuffle = True
         self.Training_batch = 100
         #self.optimizer = RMSprop
@@ -307,7 +307,7 @@ class PPOAgent:
                 self.episode = 0
                 break
 
-            if is_break:
+            if is_break and self.episode >= 10:
                 break
 
         self.env.close()
