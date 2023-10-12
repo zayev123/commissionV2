@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     ##
     'apps.traders',
     'apps.environment_simulator',
+    'apps.scraper_pipes'
 ]
 
 REST_KNOX = {
