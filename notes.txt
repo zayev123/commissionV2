@@ -35,3 +35,10 @@ I never keep less than one share in the company
 first sell all, then buy all
 
 it masks the input for the selected action. well, I am selecting all the actions.
+
+version: '3'
+services:
+  ai_model:
+    image: your_model_image:latest
+    deploy:
+      replicas: 3  # Number of workers

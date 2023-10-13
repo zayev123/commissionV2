@@ -317,25 +317,7 @@ class PPOAgent:
                 break
 
         self.env.close()
-
-    def reshape_states_beta(self, state):
-        stk_shp = 1
-        for stk in stock_observation.shape:
-            stk_shp = stk_shp*stk
-
-        cmdt_shp = 1
-        for cmdt in commodity_observation.shape:
-            cmdt_shp = cmdt_shp*cmdt
-
-        wllt_shp = 1
-        for wllt in wallet_observation.shape:
-            wllt_shp = wllt_shp*wllt
-            
-        stock_observation = np.reshape(stock_observation, (stk_shp,))
-        commodity_observation = np.reshape(commodity_observation, (cmdt_shp,))
-        # commodity_observation = np.reshape(commodity_observation, (1,) + commodity_observation.shape)
-        wallet_observation = np.reshape(wallet_observation, (wllt_shp,))
-
+        
 
     def reshape_state(self, state):
         stock_observation, commodity_observation, wallet_observation = state
