@@ -13,6 +13,8 @@ import pytz
 class MarketSimulator(gym.Env):
     def __init__(self, env_config: dict=None, data_frames = None):
         self.env_config = env_config
+        self.n_step_stocks =  self.env_config.get("n_step_stocks")
+        self.n_step_cmmdties =  self.env_config.get("n_step_cmmdties")
         self.__initial_balance = 100000
         self.action_space = self.__get_actn_shape()
         (stock_observation_space, commodity_observation_space, wallet_observation_space) = self.__get_obs_shape() 
@@ -44,12 +46,12 @@ class MarketSimulator(gym.Env):
     
     def __get_obs_shape(self):
         no_of_stocks = 5
-        stock_observation_shape = (no_of_stocks, 8)
+        stock_observation_shape = (no_of_stocks, 9 + self.n_step_stocks)
         stock_lower_bounds = np.zeros(stock_observation_shape)
         stock_upper_bounds = np.full(stock_observation_shape, float('inf'))
         
         no_of_cmmdts = 6
-        commodity_observation_shape = (no_of_cmmdts, 1) 
+        commodity_observation_shape = (no_of_cmmdts, 2 + self.n_step_cmmdties) 
 
         commodity_lower_bounds = np.zeros(commodity_observation_shape)
         commodity_upper_bounds = np.full(commodity_observation_shape, float('inf'))
@@ -63,13 +65,83 @@ class MarketSimulator(gym.Env):
                     
         return (stock_observation_space, commodity_observation_space, wallet_observation_space)
     
+    
+    def get_prev_stock_prices_data(self, target_date):
+        tme = target_date
+        target_dates = [0 for nstk in range(self.n_step_stocks+1)]
+        num_stocks = self.observation_space[0].shape[0]
+        for nstk in range(self.n_step_stocks+1):
+            target_dates[nstk] = tme
+            tme = tme - relativedelta(hours=2, minutes=30)
+
+        stock_prev_prices = np.zeros((num_stocks, self.n_step_stocks+1))
+        
+        for dt in range(self.n_step_stocks+1):
+            a_date = target_dates[dt]
+            a_stck_condition = self.stcks_buffer_df['captured_at'] == a_date
+            a_filtered_stck_df = self.stcks_buffer_df.loc[a_stck_condition]
+            a_stcks_buffer_df = a_filtered_stck_df.to_dict(orient='records')
+            for a_stck in a_stcks_buffer_df:
+                indx = a_stck["index"] -1
+                stock_prev_prices[indx][dt] = a_stck["price_snapshot"]
+
+        price_perc_changes = np.zeros((num_stocks, self.n_step_stocks))
+        copy_prev_prices = copy.deepcopy(stock_prev_prices)
+        cpy_prev_prices = np.zeros((num_stocks, self.n_step_stocks))
+        for a_indx in range(num_stocks):
+            for price_change_index in range(self.n_step_stocks):
+                last_price_index = price_change_index+1
+                cpy_prev_prices[a_indx][price_change_index] = copy_prev_prices[a_indx][last_price_index]
+                if copy_prev_prices[a_indx][last_price_index] != 0.0:
+                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])/copy_prev_prices[a_indx][last_price_index]
+                else:
+                    price_perc_changes[a_indx][price_change_index] = 0.0
+            # print("stock_prev_prices", stock_prev_prices)
+        return cpy_prev_prices
+            
+    def get_prev_cmmdty_prices_data(self, target_date):
+        tme = target_date
+        target_dates = [0 for nstk in range(self.n_step_cmmdties+1)]
+        num_cmmdties = self.observation_space[1].shape[0]
+        for ncmdt in range(self.n_step_cmmdties+1):
+            target_dates[ncmdt] = tme
+            tme = tme - relativedelta(hours=2, minutes=30)
+
+        cmmdty_prev_prices = np.zeros((num_cmmdties, self.n_step_cmmdties+1))
+        
+        for dt in range(self.n_step_cmmdties+1):
+            a_date = target_dates[dt]
+            a_cmmdty_condition = self.cmmdties_buffer_df['captured_at'] == a_date
+            a_filtered_cmmdty_df = self.cmmdties_buffer_df.loc[a_cmmdty_condition]
+            a_cmmdties_buffer_df = a_filtered_cmmdty_df.to_dict(orient='records')
+            for a_cmmdty in a_cmmdties_buffer_df:
+                indx = a_cmmdty["index"] -1
+                cmmdty_prev_prices[indx][dt] = a_cmmdty["price_snapshot"]
+
+        price_perc_changes = np.zeros((num_cmmdties, self.n_step_cmmdties))
+        copy_prev_prices = copy.deepcopy(cmmdty_prev_prices)
+        cpy_prev_prices = np.zeros((num_cmmdties, self.n_step_cmmdties))
+        for a_indx in range(num_cmmdties):
+            for price_change_index in range(self.n_step_cmmdties):
+                last_price_index = price_change_index+1
+                cpy_prev_prices[a_indx][price_change_index] = copy_prev_prices[a_indx][last_price_index]
+                if copy_prev_prices[a_indx][last_price_index] != 0.0:
+                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])/copy_prev_prices[a_indx][last_price_index]
+                else:
+                    price_perc_changes[a_indx][price_change_index] = 0.0
+
+        return cpy_prev_prices
+
+
+    
     def get_the_state(self, init = False):
         num_stocks = self.observation_space[0].shape[0]
         num_commodities = self.observation_space[1].shape[0]
         num_stock_attributes = self.observation_space[0].shape[1]
+        num_cmmdty_attributes = self.observation_space[1].shape[1]
         if init:
             stock_state = np.zeros((num_stocks, num_stock_attributes))
-            commodity_state = np.zeros((num_commodities, 1))
+            commodity_state = np.zeros((num_commodities, num_cmmdty_attributes))
             wallet_state = np.array([0])
         else:
             (stock_state, commodity_state, wallet_state) = self.state
@@ -78,34 +150,53 @@ class MarketSimulator(gym.Env):
         stck_condition = self.stcks_buffer_df['captured_at'] == target_date
         filtered_stck_df = self.stcks_buffer_df.loc[stck_condition]
         stcks_buffer_df = filtered_stck_df.to_dict(orient='records')
+        prev_stck_prices_data = self.get_prev_stock_prices_data(target_date=target_date)
 
         cmmdty_condition = self.cmmdties_buffer_df['captured_at'] == target_date
         filtered_cmmdty_df = self.cmmdties_buffer_df.loc[cmmdty_condition]
         cmmdties_buffer_df = filtered_cmmdty_df.to_dict(orient='records')
+        prev_cmmdty_prices_data = self.get_prev_cmmdty_prices_data(target_date=target_date)
 
         for a_stck in stcks_buffer_df:
             indx = a_stck["index"] -1
             if init:
-                stock_state[indx][6] = a_stck["price_snapshot"]
+                stock_state[indx][7] = a_stck["price_snapshot"]
                 available_per_stock = self.__initial_balance/5
                 if a_stck["price_snapshot"] == 0:
                     shares = 0
                 else:
                     shares = available_per_stock/a_stck["price_snapshot"]
-                stock_state[indx][7] = shares
+                stock_state[indx][8] = shares
             else:
-                stock_state[indx][6] = stock_state[indx][0]
-            stock_state[indx][0] = a_stck["price_snapshot"]
-            stock_state[indx][1] = a_stck["volume"]
-            stock_state[indx][2] = a_stck["bid_vol"]
-            stock_state[indx][3] = a_stck["bid_price"]
-            stock_state[indx][4] = a_stck["offer_vol"]
-            stock_state[indx][5] = a_stck["offer_price"]
+                # set new shares in the step function
+                stock_state[indx][7] = stock_state[indx][1]
+            # stock_state[indx][0] = a_stck["captured_at"]
+            stock_state[indx][1] = a_stck["price_snapshot"]
+            stock_state[indx][2] = a_stck["volume"]
+            stock_state[indx][3] = a_stck["bid_vol"]
+            stock_state[indx][4] = a_stck["bid_price"]
+            stock_state[indx][5] = a_stck["offer_vol"]
+            stock_state[indx][6] = a_stck["offer_price"]
+            
+            prev_prices = prev_stck_prices_data[indx]
+            ij = 9
+            # print(f"prev_prices{indx}", prev_prices)
+            for prev_price in prev_prices:
+                stock_state[indx][ij] = prev_price
+                ij = ij + 1
+
+            # print(f"stock_state[{indx}]", stock_state[indx])
         
 
         for a_cmmdty in cmmdties_buffer_df:
             indx = a_cmmdty["index"] - 1
-            commodity_state[indx] = a_cmmdty["price_snapshot"]
+            # commodity_state[indx][0] = a_cmmdty["captured_at"]
+            commodity_state[indx][1] = a_cmmdty["price_snapshot"]
+            prev_prices = prev_cmmdty_prices_data[indx]
+            ij = 2
+            for prev_price in prev_prices:
+                commodity_state[indx][ij] = prev_price
+                ij = ij + 1
                     
         return (stock_state, commodity_state, wallet_state)
 
@@ -224,19 +315,19 @@ class MarketSimulator(gym.Env):
         done = False
 
         for index in range(no_of_actions):
-            stck_price = stock_state[index][0]
-            old_stock_price = stock_state[index][6]
-            current_no_of_shares = stock_state[index][7]
+            stck_price = stock_state[index][1]
+            old_stock_price = stock_state[index][7]
+            current_no_of_shares = stock_state[index][8]
 
             old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
             current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
 
         for index in range(no_of_actions):
-            bid_vol = stock_state[index][2]
+            bid_vol = stock_state[index][3]
             action_amount = copied_action[index]*current_portfolio_value
 
-            bid_price = stock_state[index][3]
-            offer_price = stock_state[index][5]
+            bid_price = stock_state[index][4]
+            offer_price = stock_state[index][6]
             if action_amount > 0:
                 change_in_shares = action_amount/offer_price       
             else:
@@ -252,14 +343,14 @@ class MarketSimulator(gym.Env):
             print("new_actions", action)
 
         for index in range(no_of_actions):
-            stck_price = stock_state[index][0]
-            stck_vol = stock_state[index][1]
-            bid_vol = stock_state[index][2]
-            bid_price = stock_state[index][3]
-            offer_vol = stock_state[index][4]
-            offer_price = stock_state[index][5]
-            old_stock_price = stock_state[index][6]
-            current_no_of_shares = stock_state[index][7]
+            stck_price = stock_state[index][1]
+            stck_vol = stock_state[index][2]
+            bid_vol = stock_state[index][3]
+            bid_price = stock_state[index][4]
+            offer_vol = stock_state[index][5]
+            offer_price = stock_state[index][6]
+            old_stock_price = stock_state[index][7]
+            current_no_of_shares = stock_state[index][8]
 
             change_in_shares = action[index]
             
@@ -285,14 +376,14 @@ class MarketSimulator(gym.Env):
                 new_shares[index] = current_no_of_shares
 
         for index in range(no_of_actions):
-            stck_price = stock_state[index][0]
-            stck_vol = stock_state[index][1]
-            bid_vol = stock_state[index][2]
-            bid_price = stock_state[index][3]
-            offer_vol = stock_state[index][4]
-            offer_price = stock_state[index][5]
-            old_stock_price = stock_state[index][6]
-            current_no_of_shares = stock_state[index][7]
+            stck_price = stock_state[index][1]
+            stck_vol = stock_state[index][2]
+            bid_vol = stock_state[index][3]
+            bid_price = stock_state[index][4]
+            offer_vol = stock_state[index][5]
+            offer_price = stock_state[index][6]
+            old_stock_price = stock_state[index][7]
+            current_no_of_shares = stock_state[index][8]
 
             change_in_shares = self.__get_action_change(action, index)
                 
@@ -330,8 +421,8 @@ class MarketSimulator(gym.Env):
         for index in range(no_of_actions):
             if new_shares[index] <= 0:
                 new_shares[index] = 1
-            stock_state[index][7] = new_shares[index]
-            new_portfolio_value = new_portfolio_value + stock_state[index][7]*stock_state[index][0]
+            stock_state[index][8] = new_shares[index]
+            new_portfolio_value = new_portfolio_value + stock_state[index][8]*stock_state[index][1]
 
         reward = current_portfolio_value - old_portfolio_value #+ penalty
 

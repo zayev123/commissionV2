@@ -101,6 +101,7 @@ class PPOAgent:
         self.latest_state = None
         self.previous_state = None
         self.previous_actn = None
+        self.n_step = 2
 
 
     def act(self, state):
@@ -145,6 +146,31 @@ class PPOAgent:
         if normalize:
             gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
         return np.vstack(gaes), np.vstack(target)
+    
+    def get_n_step_gaes(self, rewards, dones, values, next_values, gamma=0.99, lamda=0.95, normalize=True):
+        num_steps = len(rewards)
+        deltas = np.zeros_like(rewards, dtype=float)
+        gaes = np.zeros_like(rewards, dtype=float)
+
+        for t in range(num_steps - self.n_step):  
+            n_step_return = 0
+            for i in range(self.n_step):
+                n_step_return += (gamma**i) * rewards[t + i]  # Compute the n-step return
+
+            if t + self.n_step < num_steps:
+                n_step_return += (gamma**self.n_step) * next_values[t + self.n_step]  # Add the value function estimate for the next state
+            else:
+                n_step_return += (gamma**self.n_step) * values[t + self.n_step - 1]  # If it's the last step, estimate with the last value
+
+            delta = n_step_return - values[t]
+            deltas[t] = delta
+
+            gaes[t] = delta
+
+        if normalize:
+            gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
+
+        return np.vstack(gaes), np.vstack(gaes + values)
 
     def flatten_states(self, states):
         flattened_states = []
