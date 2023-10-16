@@ -52,6 +52,7 @@ class PPOAgent:
         self.env_name = "market"   
         self.env_config = env_config
         self.env = MarketSimulator(env_config=env_config)
+        self.epsilon = env_config.get("epsilon")
         
         self.action_size = self.env.action_space.shape[0]
         (stock_space, commodity_space, wallet_space) = self.env.observation_space
@@ -73,10 +74,10 @@ class PPOAgent:
         self.lr = 0.00025
         self.epochs = 20 # training epochs
         self.shuffle = True
-        self.Training_batch = 100
+        self.Training_batch = env_config.get("max_episode_steps", 100)
         #self.optimizer = RMSprop
         self.optimizer = Adam
-        self.test_steps = min(self.Training_batch, env_config.get("test_steps", 1))
+        self.test_steps = env_config.get("test_steps", 10)
 
         self.replay_count = 0
         self.writer = SummaryWriter(comment="_"+self.env_name+"_"+self.optimizer.__name__+"_"+str(self.lr))
@@ -108,10 +109,19 @@ class PPOAgent:
         # Use the network to predict the next action to take, using the model
         pred = self.Actor.predict(state)
 
-        low, high = -1.0, 1.0 # -1 and 1 are boundaries of tanh
-        action = pred + np.random.uniform(low, high, size=pred.shape) * self.std
-        action = np.clip(action, low, high)
-        
+        # action = pred + np.random.uniform(low, high, size=pred.shape) * self.std
+        mst = "pred"
+        if np.random.rand() < self.epsilon:
+            # Random action
+            mst = "rand"
+            action = self.env.sample()
+        else:
+            # Greedy action using your act() function
+            action = pred
+
+        # print(mst, action)
+
+
         logp_t = self.gaussian_likelihood(action, pred, self.log_std)
 
         return action, logp_t
@@ -146,31 +156,6 @@ class PPOAgent:
         if normalize:
             gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
         return np.vstack(gaes), np.vstack(target)
-    
-    def get_n_step_gaes(self, rewards, dones, values, next_values, gamma=0.99, lamda=0.95, normalize=True):
-        num_steps = len(rewards)
-        deltas = np.zeros_like(rewards, dtype=float)
-        gaes = np.zeros_like(rewards, dtype=float)
-
-        for t in range(num_steps - self.n_step):  
-            n_step_return = 0
-            for i in range(self.n_step):
-                n_step_return += (gamma**i) * rewards[t + i]  # Compute the n-step return
-
-            if t + self.n_step < num_steps:
-                n_step_return += (gamma**self.n_step) * next_values[t + self.n_step]  # Add the value function estimate for the next state
-            else:
-                n_step_return += (gamma**self.n_step) * values[t + self.n_step - 1]  # If it's the last step, estimate with the last value
-
-            delta = n_step_return - values[t]
-            deltas[t] = delta
-
-            gaes[t] = delta
-
-        if normalize:
-            gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
-
-        return np.vstack(gaes), np.vstack(gaes + values)
 
     def flatten_states(self, states):
         flattened_states = []
@@ -207,6 +192,7 @@ class PPOAgent:
         #discounted_r = self.discount_rewards(rewards)
         #advantages = np.vstack(discounted_r - values)
         advantages, target = self.get_gaes(rewards, dones, np.squeeze(values), np.squeeze(next_values))
+        print(("advantages",advantages))
         '''
         pylab.plot(adv,'.')
         pylab.plot(target,'-')

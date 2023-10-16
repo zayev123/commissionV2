@@ -9,7 +9,7 @@ import asyncio
 import psycopg2
 import pandas as pd
 import pytz
-
+import tensorflow as tf
 class MarketSimulator(gym.Env):
     def __init__(self, env_config: dict=None, data_frames = None):
         self.env_config = env_config
@@ -24,6 +24,35 @@ class MarketSimulator(gym.Env):
         self.__print_output = self.env_config.get("print_output")
         self.reset()
         
+    def sample(self):
+        action = self.action_space.sample()
+        # neg_mask = action < 0
+        # neg_sum = np.sum(action[neg_mask])
+
+        # pos_mask = action > 0
+        # pos_values_sum = np.sum(action[pos_mask])
+
+        # if neg_sum != 0:
+        #     ratio_a = abs(-1 - neg_sum) / abs(neg_sum)
+        # else:
+        #     ratio_a = 0
+        # ratio_b = 1 - ratio_a
+
+
+        # # Adjust negative values if their sum is less than -1
+        # if neg_sum < -1:
+        #     action[neg_mask] *= ratio_b
+
+
+        # if pos_values_sum > 0:
+        #     if pos_values_sum != 0:
+        #         ratio_c = abs(max(-1.0, neg_sum)) / pos_values_sum
+        #     else:
+        #         ratio_c = 0
+        #     action[pos_mask] *= ratio_c
+
+        return np.array([action])
+
     
     def __get_actn_shape(self):
         no_of_stocks = 5
@@ -37,8 +66,8 @@ class MarketSimulator(gym.Env):
 
 
 
-        lower_bounds = [-1] * no_of_actions
-        upper_bounds = [1] * no_of_actions
+        lower_bounds = [0] * no_of_actions
+        upper_bounds = [1000] * no_of_actions
 
         actn_shape = spaces.Box(low=np.array(lower_bounds), high=np.array(upper_bounds))
                 
@@ -47,13 +76,13 @@ class MarketSimulator(gym.Env):
     def __get_obs_shape(self):
         no_of_stocks = 5
         stock_observation_shape = (no_of_stocks, 9 + self.n_step_stocks)
-        stock_lower_bounds = np.zeros(stock_observation_shape)
+        stock_lower_bounds = np.full(stock_observation_shape, float('-inf'))
         stock_upper_bounds = np.full(stock_observation_shape, float('inf'))
         
         no_of_cmmdts = 6
         commodity_observation_shape = (no_of_cmmdts, 2 + self.n_step_cmmdties) 
 
-        commodity_lower_bounds = np.zeros(commodity_observation_shape)
+        commodity_lower_bounds = np.full(commodity_observation_shape, float('-inf'))
         commodity_upper_bounds = np.full(commodity_observation_shape, float('inf'))
 
         stock_observation_space = spaces.Box(low=stock_lower_bounds, high=stock_upper_bounds)
@@ -93,7 +122,7 @@ class MarketSimulator(gym.Env):
                 last_price_index = price_change_index+1
                 cpy_prev_prices[a_indx][price_change_index] = copy_prev_prices[a_indx][last_price_index]
                 if copy_prev_prices[a_indx][last_price_index] != 0.0:
-                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])/copy_prev_prices[a_indx][last_price_index]
+                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])*100/copy_prev_prices[a_indx][last_price_index]
                 else:
                     price_perc_changes[a_indx][price_change_index] = 0.0
             # print("stock_prev_prices", stock_prev_prices)
@@ -126,11 +155,11 @@ class MarketSimulator(gym.Env):
                 last_price_index = price_change_index+1
                 cpy_prev_prices[a_indx][price_change_index] = copy_prev_prices[a_indx][last_price_index]
                 if copy_prev_prices[a_indx][last_price_index] != 0.0:
-                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])/copy_prev_prices[a_indx][last_price_index]
+                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])*100/copy_prev_prices[a_indx][last_price_index]
                 else:
                     price_perc_changes[a_indx][price_change_index] = 0.0
 
-        return cpy_prev_prices
+        return price_perc_changes
 
 
     
@@ -145,6 +174,7 @@ class MarketSimulator(gym.Env):
             wallet_state = np.array([0])
         else:
             (stock_state, commodity_state, wallet_state) = self.state
+
 
         target_date = self.the_current_time_step
         stck_condition = self.stcks_buffer_df['captured_at'] == target_date
@@ -166,7 +196,7 @@ class MarketSimulator(gym.Env):
                     shares = 0
                 else:
                     shares = available_per_stock/a_stck["price_snapshot"]
-                stock_state[indx][8] = shares
+                stock_state[indx][8] = 0
             else:
                 # set new shares in the step function
                 stock_state[indx][7] = stock_state[indx][1]
@@ -295,9 +325,9 @@ class MarketSimulator(gym.Env):
         if self.__print_output:
             print("")
             print(f"stepping_a {action}")
-            print(commodity_state)
+            # print(commodity_state)
             print(stock_state)
-            print(wallet_state)
+            # print(wallet_state)
 
 
         no_of_actions = len(action)
@@ -313,130 +343,175 @@ class MarketSimulator(gym.Env):
         new_shares = {}
         flagged = False
         done = False
+        trends = {}
 
-        for index in range(no_of_actions):
-            stck_price = stock_state[index][1]
-            old_stock_price = stock_state[index][7]
-            current_no_of_shares = stock_state[index][8]
-
-            old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
-            current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
-
-        for index in range(no_of_actions):
-            bid_vol = stock_state[index][3]
-            action_amount = copied_action[index]*current_portfolio_value
-
-            bid_price = stock_state[index][4]
-            offer_price = stock_state[index][6]
-            if action_amount > 0:
-                change_in_shares = action_amount/offer_price       
-            else:
-                change_in_shares = action_amount/bid_price
-
-            action[index] = change_in_shares
-            if self.__print_output:
-                print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
-
-        if self.__print_output:
-            print("nw_ports", current_portfolio_value)
-            print("old_actions", copied_action)
-            print("new_actions", action)
-
-        for index in range(no_of_actions):
-            stck_price = stock_state[index][1]
-            stck_vol = stock_state[index][2]
-            bid_vol = stock_state[index][3]
-            bid_price = stock_state[index][4]
-            offer_vol = stock_state[index][5]
-            offer_price = stock_state[index][6]
-            old_stock_price = stock_state[index][7]
-            current_no_of_shares = stock_state[index][8]
-
-            change_in_shares = action[index]
-            
-            if change_in_shares < 0:
-
-                if bid_vol + change_in_shares < 0:
-                    penalty = penalty + bid_vol + change_in_shares
-                    flagged = True
-                    if self.__print_output:
-                        print("break_2")
-                    change_in_shares = -1*bid_vol
-
-                if current_no_of_shares + change_in_shares < 0:
-                    penalty = penalty + current_no_of_shares + change_in_shares
-                    flagged = True
-                    if self.__print_output:
-                        print("break_3")
-                    change_in_shares = -1*current_no_of_shares + 1
-                total_freed_capital = total_freed_capital + abs(change_in_shares)*bid_price
-                new_shares[index] = change_in_shares + current_no_of_shares
-            
-            if change_in_shares == 0:
-                new_shares[index] = current_no_of_shares
-
-        for index in range(no_of_actions):
-            stck_price = stock_state[index][1]
-            stck_vol = stock_state[index][2]
-            bid_vol = stock_state[index][3]
-            bid_price = stock_state[index][4]
-            offer_vol = stock_state[index][5]
-            offer_price = stock_state[index][6]
-            old_stock_price = stock_state[index][7]
-            current_no_of_shares = stock_state[index][8]
-
-            change_in_shares = self.__get_action_change(action, index)
-                
-            if change_in_shares > 0:
-                if offer_vol - change_in_shares < 0:
-                    penalty = penalty + offer_vol - change_in_shares
-                    flagged = True
-                    if self.__print_output:
-                        print("break_1")
-                    change_in_shares = offer_vol
-                    
-                capital_locked = change_in_shares*offer_price
-                if capital_locked > total_freed_capital:
-                    penalty = penalty + total_freed_capital - capital_locked
-                    capital_locked = total_freed_capital
-                    if self.__print_output:
-                        print("crack_2")
-                change_in_shares = capital_locked/offer_price
-                total_freed_capital = total_freed_capital - capital_locked
-
-                # total_value_bought = total_value_bought + capital_locked*offer_price
-            
-                new_shares[index] = change_in_shares + current_no_of_shares
-
-        if current_portfolio_value == 0:
-            done = True
-            flagged = True
-            penalty = penalty -10
-            if self.__print_output:
-                print("break_4")
+        stock_prediction_diffs = {}
         
-        # freed_balance = total_freed_capital - total_value_bought
-        wallet_state[0] = total_freed_capital
-        new_portfolio_value = total_freed_capital
-        for index in range(no_of_actions):
-            if new_shares[index] <= 0:
-                new_shares[index] = 1
-            stock_state[index][8] = new_shares[index]
-            new_portfolio_value = new_portfolio_value + stock_state[index][8]*stock_state[index][1]
 
-        reward = current_portfolio_value - old_portfolio_value #+ penalty
+        # for index in range(no_of_actions):
+        #     stck_price = stock_state[index][1]
+        #     old_stock_price = stock_state[index][7]
+        #     current_no_of_shares = stock_state[index][8]
+
+        #     old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
+        #     current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
+        #     trends[index] = stock_state[index][11] - stock_state[index][9]
+
+        rewards = np.zeros(5)
+        for stkInd in range(no_of_actions):
+            diff = 480 - stock_state[1][8]
+            perc_diff = (diff/1000)*100
+            temp = 0
+            
+            if perc_diff <10:
+                temp = 80
+            elif perc_diff <20:
+                temp = 40
+            
+            elif perc_diff <30:
+                temp = 30
+            
+            elif perc_diff <40:
+                temp = 20
+
+            if perc_diff <50:
+                temp = 10
+            if perc_diff ==50:
+                temp = 0
+
+            if perc_diff <60:
+                temp = -10
+            if perc_diff <70:
+                temp = -20
+            if perc_diff <80:
+                temp = -30
+            if perc_diff <90:
+                temp = -80
+
+            rewards[stkInd]=temp
+
+        for index in range(no_of_actions):
+            stock_state[index][8] = action[index]
+        
+        # for index in range(no_of_actions):
+        #     bid_vol = stock_state[index][3]
+        #     action_amount = copied_action[index]*current_portfolio_value
+
+        #     bid_price = stock_state[index][4]
+        #     offer_price = stock_state[index][6]
+        #     if action_amount > 0:
+        #         change_in_shares = action_amount/offer_price       
+        #     else:
+        #         change_in_shares = action_amount/bid_price
+
+        #     action[index] = change_in_shares
+        #     if self.__print_output:
+        #         print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
+
+        # if self.__print_output:
+        #     print("nw_ports", current_portfolio_value)
+        #     print("old_actions", copied_action)
+        #     print("new_actions", action)
+
+        # for index in range(no_of_actions):
+        #     stck_price = stock_state[index][1]
+        #     stck_vol = stock_state[index][2]
+        #     bid_vol = stock_state[index][3]
+        #     bid_price = stock_state[index][4]
+        #     offer_vol = stock_state[index][5]
+        #     offer_price = stock_state[index][6]
+        #     old_stock_price = stock_state[index][7]
+        #     current_no_of_shares = stock_state[index][8]
+
+        #     change_in_shares = action[index]
+            
+        #     if change_in_shares < 0:
+
+        #         if bid_vol + change_in_shares < 0:
+        #             penalty = penalty + bid_vol + change_in_shares
+        #             flagged = True
+        #             if self.__print_output:
+        #                 print("break_2")
+        #             change_in_shares = -1*bid_vol
+
+        #         if current_no_of_shares + change_in_shares < 0:
+        #             penalty = penalty + current_no_of_shares + change_in_shares
+        #             flagged = True
+        #             if self.__print_output:
+        #                 print("break_3")
+        #             change_in_shares = -1*current_no_of_shares + 1
+        #         total_freed_capital = total_freed_capital + abs(change_in_shares)*bid_price
+        #         new_shares[index] = change_in_shares + current_no_of_shares
+            
+        #     if change_in_shares == 0:
+        #         new_shares[index] = current_no_of_shares
+
+        # for index in range(no_of_actions):
+        #     stck_price = stock_state[index][1]
+        #     stck_vol = stock_state[index][2]
+        #     bid_vol = stock_state[index][3]
+        #     bid_price = stock_state[index][4]
+        #     offer_vol = stock_state[index][5]
+        #     offer_price = stock_state[index][6]
+        #     old_stock_price = stock_state[index][7]
+        #     current_no_of_shares = stock_state[index][8]
+
+        #     change_in_shares = self.__get_action_change(action, index)
+                
+        #     if change_in_shares > 0:
+        #         if offer_vol - change_in_shares < 0:
+        #             penalty = penalty + offer_vol - change_in_shares
+        #             flagged = True
+        #             if self.__print_output:
+        #                 print("break_1")
+        #             change_in_shares = offer_vol
+                    
+        #         capital_locked = change_in_shares*offer_price
+        #         if capital_locked > total_freed_capital:
+        #             penalty = penalty + total_freed_capital - capital_locked
+        #             capital_locked = total_freed_capital
+        #             if self.__print_output:
+        #                 print("crack_2")
+        #         change_in_shares = capital_locked/offer_price
+        #         total_freed_capital = total_freed_capital - capital_locked
+
+        #         # total_value_bought = total_value_bought + capital_locked*offer_price
+            
+        #         new_shares[index] = change_in_shares + current_no_of_shares
+
+        # if current_portfolio_value == 0:
+        #     done = True
+        #     flagged = True
+        #     penalty = penalty -10
+        #     if self.__print_output:
+        #         print("break_4")
+        
+        # # freed_balance = total_freed_capital - total_value_bought
+        # wallet_state[0] = total_freed_capital
+        # new_portfolio_value = total_freed_capital
+        # for index in range(no_of_actions):
+        #     if new_shares[index] <= 0:
+        #         new_shares[index] = 1
+        #     stock_state[index][8] = new_shares[index]
+        #     new_portfolio_value = new_portfolio_value + stock_state[index][8]*stock_state[index][1]
+
+        # reward = (current_portfolio_value - old_portfolio_value)/1 #+ penalty
+
+        # for inx, trend in trends.items():
+        #     reward = reward+trend*action[index]
 
         self.state = (stock_state, commodity_state, wallet_state)
         info = {}
 
         if self.__step_no > self.max_episode_steps:
-            done = True
+            done = [False, False, False, False, False]
+
 
         if self.__print_output:
-            print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
-            print(commodity_state)
+            print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {rewards}")
+            # print(commodity_state)
             print(stock_state)
             print("")
 
-        return self.state, reward, done, info
+        return self.state, rewards, done, info
 

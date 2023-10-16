@@ -9,6 +9,7 @@ from matplotlib.dates import relativedelta
 import tensorflow as tf
 import numpy as np
 from keras.optimizers import Adam
+from keras.losses import mean_squared_error
 
 from services.zayev.environment.market_simulator import MarketSimulator
 
@@ -32,31 +33,42 @@ class Actor_Model:
         X = Dense(1024, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
         X = Dense(1024, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         # X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
-        output = Dense(self.action_shape, activation="tanh")(X)
-        scaled_output = Lambda(lambda x: self.custom_activation(x))(output)
+        output = Dense(self.action_shape, activation="linear")(X)
+        # scaled_output = Lambda(lambda x: self.custom_activation(x))(output)
 
-        self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = scaled_output)
+        self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
         self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=optimizer(lr=lr))
         # print(self.Actor.summary())
 
     def custom_activation(self, x):
-        neg_mask = x < 0
-        neg_sum = tf.reduce_sum(tf.boolean_mask(x, neg_mask))
+        # neg_mask = x < 0
+        # neg_sum = tf.reduce_sum(tf.boolean_mask(x, neg_mask))
 
-        pos_mask = x > 0
-        pos_values_sum = tf.reduce_sum(tf.boolean_mask(x, pos_mask))
+        # pos_mask = x > 0
+        # pos_values_sum = tf.reduce_sum(tf.boolean_mask(x, pos_mask))
 
-        ratio_a = tf.abs(-1 - neg_sum) / tf.abs(neg_sum)
-        ratio_b = 1- ratio_a
+        # ratio_a = tf.abs(-1 - neg_sum) / tf.abs(neg_sum)
+        # ratio_b = 1- ratio_a
 
-        x = tf.where(neg_mask & (neg_sum<-1), x * ratio_b, x)
+        # x = tf.where(neg_mask & (neg_sum<-1), x * ratio_b, x)
 
-        # Reduce the positive sum if it's greater than the adjusted neg_sum
-        ratio_c = tf.abs(tf.maximum(-1.0, neg_sum)) / pos_values_sum
+        # # Reduce the positive sum if it's greater than the adjusted neg_sum
+        # ratio_c = tf.abs(tf.maximum(-1.0, neg_sum)) / pos_values_sum
 
-        x = tf.where(pos_mask, x * ratio_c, x)
+        # x = tf.where(pos_mask, x * ratio_c, x)
+
+        x = x*1000
 
         return x
+    
+    def custom_stock_loss(num_stocks):
+        def stock_loss(y_true, y_pred):
+            # Create a list of MSE losses for each stock prediction
+            losses = [mean_squared_error(y_true[:, i], y_pred[:, i]) for i in range(num_stocks)]
+            # Return the list of losses
+            return losses
+
+        return stock_loss
     
     def ppo_loss_continuous(self, y_true, y_pred):
         advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]
