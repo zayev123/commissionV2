@@ -146,16 +146,37 @@ class PPOAgent:
         return discounted_r
 
     def get_gaes(self, rewards, dones, values, next_values, gamma = 0.99, lamda = 0.90, normalize=True):
-        deltas = [r + gamma * (1 - d) * nv - v for r, d, nv, v in zip(rewards, dones, next_values, values)]
-        deltas = np.stack(deltas)
-        gaes = copy.deepcopy(deltas)
-        for t in reversed(range(len(deltas) - 1)):
-            gaes[t] = gaes[t] + (1 - dones[t]) * gamma * lamda * gaes[t + 1]
+        advantages = []
+        # deltas = [r + gamma * (1 - d) * nv - v for r, d, nv, v in zip(rewards, dones, next_values, values)]
+        # deltas = np.stack(deltas)
+        # gaes = copy.deepcopy(deltas)
+        # for t in reversed(range(len(deltas) - 1)):
+        #     gaes[t] = gaes[t] + (1 - dones[t]) * gamma * lamda * gaes[t + 1]
 
-        target = gaes + values
+        # target = gaes + values
+        # if normalize:
+        #     gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
+        for stock_indx in range(self.action_size):
+        
+            stock_rewards = rewards[:, stock_indx]
+            stock_dones = dones[:, stock_indx]
+            stock_values = values[:, stock_indx]
+            stock_next_values = next_values[:, stock_indx]
+
+            deltas = [r + gamma * (1 - d) * nv - v for r, d, nv, v in zip(stock_rewards, stock_dones, stock_next_values, stock_values)]
+            deltas = np.stack(deltas)
+            gaes = copy.deepcopy(deltas)
+            for t in reversed(range(len(deltas) - 1)):
+                gaes[t] = gaes[t] + (1 - stock_dones[t]) * gamma * lamda * gaes[t + 1]
+
+            advantages.append(gaes)
+        advantages = np.vstack(advantages)
+        targets = np.vstack(targets)
+
         if normalize:
-            gaes = (gaes - gaes.mean()) / (gaes.std() + 1e-8)
-        return np.vstack(gaes), np.vstack(target)
+            advantages = (advantages - np.mean(advantages, axis=0)) / (np.std(advantages, axis=0) + 1e-8)
+
+        return advantages, targets
 
     def flatten_states(self, states):
         flattened_states = []
@@ -175,6 +196,7 @@ class PPOAgent:
             next_stock_states, next_commodity_states, next_wallet_states, 
             logp_ts
     ):
+    # Stack states, actions, and log probabilities
         stock_states = np.vstack(stock_states)
         commodity_states = np.vstack(commodity_states)
         wallet_states = np.vstack(wallet_states)
@@ -184,51 +206,45 @@ class PPOAgent:
         actions = np.vstack(actions)
         logp_ts = np.vstack(logp_ts)
 
-        # Get Critic network predictions 
-        values = self.Critic.predict([stock_states, commodity_states, wallet_states])
-        next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
+        # Get Critic network predictions
+        values = self.Critic.Critic.predict([stock_states, commodity_states, wallet_states])
+        next_values = self.Critic.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
 
-        # Compute discounted rewards and advantages
-        #discounted_r = self.discount_rewards(rewards)
-        #advantages = np.vstack(discounted_r - values)
+        # Compute discounted rewards and advantages using your custom method
         advantages, target = self.get_gaes(rewards, dones, np.squeeze(values), np.squeeze(next_values))
-        print(("advantages",advantages))
-        '''
-        pylab.plot(adv,'.')
-        pylab.plot(target,'-')
-        ax=pylab.gca()
-        ax.grid(True)
-        pylab.subplots_adjust(left=0.05, right=0.98, top=0.96, bottom=0.06)
-        pylab.show()
-        if str(episode)[-2:] == "00": pylab.savefig(self.env_name+"_"+self.episode+".png")
-        '''
-        # stack everything to numpy array
-        # pack all advantages, predictions and actions to y_true and when they are received
-        # in custom loss function we unpack it
-        y_true = np.hstack([advantages, actions, logp_ts])
-        
-        # training Actor and Critic networks
-        a_loss = self.Actor.Actor.fit(
-            [stock_states, commodity_states, wallet_states], 
-            y_true, epochs=self.epochs, 
-            verbose=0, shuffle=self.shuffle
-        )
-        c_loss = self.Critic.Critic.fit(
-            [stock_states, commodity_states, wallet_states, values], 
-            target, epochs=self.epochs, verbose=0, shuffle=self.shuffle
-        )
 
-        # calculate loss parameters (should be done in loss, but couldn't find working way how to do that with disabled eager execution)
-        pred = self.Actor.predict([stock_states, commodity_states, wallet_states])
-        log_std = -0.5 * np.ones(self.action_size, dtype=np.float32)
-        logp = self.gaussian_likelihood(actions, pred, log_std)
-        approx_kl = np.mean(logp_ts - logp)
-        approx_ent = np.mean(-logp)
+        # Create separate lists of advantages, actions, and log probabilities for each stock
+        stock_advantages = np.array_split(advantages, self.action_size, axis=1)
+        stock_actions = np.array_split(actions, self.action_size, axis=1)
+        stock_logp_ts = np.array_split(logp_ts, self.action_size, axis=1)
 
-        self.writer.add_scalar('Data/actor_loss_per_replay', np.sum(a_loss.history['loss']), self.replay_count)
-        self.writer.add_scalar('Data/critic_loss_per_replay', np.sum(c_loss.history['loss']), self.replay_count)
-        self.writer.add_scalar('Data/approx_kl_per_replay', approx_kl, self.replay_count)
-        self.writer.add_scalar('Data/approx_ent_per_replay', approx_ent, self.replay_count)
+        # Initialize lists to store actor and critic losses for each stock
+        actor_losses = []
+        critic_losses = []
+
+        # Train Actor and Critic networks separately for each stock
+        for stock in range(self.action_size):
+            stock_adv = stock_advantages[stock]
+            stock_act = stock_actions[stock]
+            stock_logp = stock_logp_ts[stock]
+            stock_tar = target[:, stock]
+
+            # Create y_true for this stock
+            y_true = np.hstack([stock_adv, stock_act, stock_logp])
+
+            # Training Actor and Critic networks for this stock
+            a_loss = self.Actor.Actor.fit(
+                [stock_states, commodity_states, wallet_states],
+                y_true, epochs=self.epochs, verbose=0, shuffle=self.shuffle
+            )
+            c_loss = self.Critic.Critic.fit(
+                [stock_states, commodity_states, wallet_states, values],
+                stock_tar, epochs=self.epochs, verbose=0, shuffle=self.shuffle
+            )
+
+            # Append actor and critic losses to the respective lists
+            actor_losses.append(a_loss.history['loss'][-1])
+            critic_losses.append(c_loss.history['loss'][-1])
         self.replay_count += 1
  
     def load(self):
@@ -272,7 +288,7 @@ class PPOAgent:
     def run_batch(self):
         state = self.env.reset()
         state = self.reshape_state(state)
-        done, score, SAVING = False, 0, ''
+        done, score, SAVING = False, np.zeros(self.action_size), ''
         is_break = False
         while True:
             # Instantiate or reset games memory
