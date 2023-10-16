@@ -42,3 +42,5 @@ services:
     image: your_model_image:latest
     deploy:
       replicas: 3  # Number of workers
+
+my q value estimate should be the sum of all changes given the current state
