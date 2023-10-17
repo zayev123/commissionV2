@@ -202,6 +202,8 @@ class PPOAgent:
         # Get Critic network predictions 
         values = self.Critic.predict([stock_states, commodity_states, wallet_states])
         next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
+        for i in range(len(rewards)):
+            print(actions[i], rewards[i], next_values[i], values[i])
 
         # Compute discounted rewards and advantages
         #discounted_r = self.discount_rewards(rewards)
@@ -297,6 +299,10 @@ class PPOAgent:
                 # self.env.render()
                 # Actor picks an action
                 action, logp_t = self.act(state)
+                print("jus", action[0])
+                for actn in action[0]:
+                    if abs(actn)>1:
+                        print("actn", actn)
                 # Retrieve new state, reward, and whether the state is terminal
                 next_state, reward, done, _ = self.env.step(action[0])
                 next_state = self.reshape_state(next_state)
