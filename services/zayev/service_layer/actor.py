@@ -29,9 +29,10 @@ class Actor_Model:
         X_input = Flatten()(obs_input)
         self.action_shape = self.env.action_space.shape[0]
         
-        X = Dense(1024, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
-        X = Dense(1024, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
-        # X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
+        X = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(64, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         output = Dense(self.action_shape, activation="tanh")(X)
         scaled_output = Lambda(lambda x: self.custom_activation(x))(output)
 
@@ -59,8 +60,6 @@ class Actor_Model:
         return x
     
     def ppo_loss_continuous(self, y_true, y_pred):
-        tf.print("ayay")
-        tf.print(y_true, y_pred)
         advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]
         LOSS_CLIPPING = 0.2
         logp = self.gaussian_likelihood(actions, y_pred)

@@ -21,7 +21,7 @@ class MarketSimulator(gym.Env):
         self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space, wallet_observation_space))
         self.data_frames = data_frames
         self.max_episode_steps = self.env_config.get("max_episode_steps")
-        self.__print_output = self.env_config.get("print_output")
+        self._print_output = self.env_config.get("print_output")
         self.reset()
         
     
@@ -292,7 +292,7 @@ class MarketSimulator(gym.Env):
         self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         self.__step_no = self.__step_no + 1
         (stock_state, commodity_state, wallet_state) = self.get_the_state()
-        if self.__print_output:
+        if self._print_output:
             print("")
             print(f"stepping_a {action}")
             print(commodity_state)
@@ -313,6 +313,7 @@ class MarketSimulator(gym.Env):
         new_shares = {}
         flagged = False
         done = False
+        trends = {}
 
         for index in range(no_of_actions):
             stck_price = stock_state[index][1]
@@ -321,6 +322,7 @@ class MarketSimulator(gym.Env):
 
             old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
             current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
+            trends[index] = stock_state[index][12] - stock_state[index][9]
 
         for index in range(no_of_actions):
             bid_vol = stock_state[index][3]
@@ -334,10 +336,10 @@ class MarketSimulator(gym.Env):
                 change_in_shares = action_amount/bid_price
 
             action[index] = change_in_shares
-            if self.__print_output:
+            if self._print_output:
                 print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
 
-        if self.__print_output:
+        if self._print_output:
             print("nw_ports", current_portfolio_value)
             print("old_actions", copied_action)
             print("new_actions", action)
@@ -359,14 +361,14 @@ class MarketSimulator(gym.Env):
                 if bid_vol + change_in_shares < 0:
                     penalty = penalty + bid_vol + change_in_shares
                     flagged = True
-                    if self.__print_output:
+                    if self._print_output:
                         print("break_2")
                     change_in_shares = -1*bid_vol
 
                 if current_no_of_shares + change_in_shares < 0:
                     penalty = penalty + current_no_of_shares + change_in_shares
                     flagged = True
-                    if self.__print_output:
+                    if self._print_output:
                         print("break_3")
                     change_in_shares = -1*current_no_of_shares + 1
                 total_freed_capital = total_freed_capital + abs(change_in_shares)*bid_price
@@ -391,7 +393,7 @@ class MarketSimulator(gym.Env):
                 if offer_vol - change_in_shares < 0:
                     penalty = penalty + offer_vol - change_in_shares
                     flagged = True
-                    if self.__print_output:
+                    if self._print_output:
                         print("break_1")
                     change_in_shares = offer_vol
                     
@@ -399,7 +401,7 @@ class MarketSimulator(gym.Env):
                 if capital_locked > total_freed_capital:
                     penalty = penalty + total_freed_capital - capital_locked
                     capital_locked = total_freed_capital
-                    if self.__print_output:
+                    if self._print_output:
                         print("crack_2")
                 change_in_shares = capital_locked/offer_price
                 total_freed_capital = total_freed_capital - capital_locked
@@ -412,7 +414,7 @@ class MarketSimulator(gym.Env):
             done = True
             flagged = True
             penalty = penalty -10
-            if self.__print_output:
+            if self._print_output:
                 print("break_4")
         
         # freed_balance = total_freed_capital - total_value_bought
@@ -424,7 +426,8 @@ class MarketSimulator(gym.Env):
             stock_state[index][8] = new_shares[index]
             new_portfolio_value = new_portfolio_value + stock_state[index][8]*stock_state[index][1]
 
-        reward = current_portfolio_value - old_portfolio_value #+ penalty
+        # reward = current_portfolio_value - old_portfolio_value #+ penalty
+        reward = self.get_trend_follow_reward(trends, action)
 
         self.state = (stock_state, commodity_state, wallet_state)
         info = {}
@@ -432,11 +435,24 @@ class MarketSimulator(gym.Env):
         if self.__step_no > self.max_episode_steps:
             done = True
 
-        if self.__print_output:
+        if self._print_output:
             print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
             print(commodity_state)
             print(stock_state)
             print("")
 
         return self.state, reward, done, info
+    
+    def get_trend_follow_reward(self, trend, action):
+        reward = 0
+        for index in range(len(action)-1):
+            sign = trend[index]*action[index] 
+            if sign > 0:
+                reward = reward +1
+            else:
+                reward = reward -1
+
+        return reward
+
+
 

@@ -67,13 +67,13 @@ class PPOAgent:
         
 
 
-        self.EPISODES = 20 # total episodes to train through all environments
+        self.EPISODES = env_config.get("max_episodes", 20) # total episodes to train through all environments
         self.episode = 0 # used to track the episodes total count of episodes played through all thread environments
         self.max_average = 0 # when average score is above 0 model will be saved
         self.lr = 0.00025
         self.epochs = 20 # training epochs
         self.shuffle = True
-        self.Training_batch = 100
+        self.Training_batch = env_config.get("max_episode_steps", 100)
         #self.optimizer = RMSprop
         self.optimizer = Adam
         self.test_steps = min(self.Training_batch, env_config.get("test_steps", 1))
@@ -202,8 +202,9 @@ class PPOAgent:
         # Get Critic network predictions 
         values = self.Critic.predict([stock_states, commodity_states, wallet_states])
         next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
-        for i in range(len(rewards)):
-            print(actions[i], rewards[i], next_values[i], values[i])
+        if self.env._print_output:
+            for i in range(len(rewards)):
+                print(actions[i], rewards[i], next_values[i], values[i])
 
         # Compute discounted rewards and advantages
         #discounted_r = self.discount_rewards(rewards)
@@ -299,10 +300,11 @@ class PPOAgent:
                 # self.env.render()
                 # Actor picks an action
                 action, logp_t = self.act(state)
-                print("jus", action[0])
-                for actn in action[0]:
-                    if abs(actn)>1:
-                        print("actn", actn)
+                if self.env._print_output:
+                    print("jus", action[0])
+                    for actn in action[0]:
+                        if abs(actn)>1:
+                            print("actn", actn)
                 # Retrieve new state, reward, and whether the state is terminal
                 next_state, reward, done, _ = self.env.step(action[0])
                 next_state = self.reshape_state(next_state)
@@ -429,6 +431,7 @@ class PPOAgent:
             worker_states["wallet_tt"].append(temp_state[2])
 
         while self.episode < self.EPISODES:
+            print(self.episode, "eppix")
             # get batch of action's and log_pi's
             action, logp_pi = self.act([
                 np.vstack(worker_states["stock_tt"]), 
@@ -560,11 +563,3 @@ class PPOAgent:
         cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names)
 
         return [stck_df, cmmdties_df, stcks_buffer_df, cmmdties_buffer_df] 
-            
-
-if __name__ == "__main__":
-    env_name = 'BipedalWalker-v3'
-    agent = PPOAgent(env_name)
-    agent.run_batch() # train as PPO
-    #agent.run_multiprocesses(num_worker = 16)  # train PPO multiprocessed (fastest)
-    # agent.test()

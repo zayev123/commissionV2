@@ -18,8 +18,8 @@ class ZActor:
         X_input = Flatten()(obs_input)
         self.action_shape = self.env.action_space.shape[0]
         
-        X = Dense(1024, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
-        X = Dense(1024, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(516, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
+        X = Dense(516, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         # X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         output = Dense(self.action_shape, activation="linear")(X)
         self.Actor = Model(inputs=[stock_input, commodity_input, wallet_input], outputs = output)
