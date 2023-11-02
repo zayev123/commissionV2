@@ -73,7 +73,7 @@ class PPOAgent:
         self.lr = 0.00025
         self.epochs = 20 # training epochs
         self.shuffle = True
-        self.Training_batch = 100
+        self.Training_batch = env_config.get("max_episode_steps", 100)
         #self.optimizer = RMSprop
         self.optimizer = Adam
         self.test_steps = min(self.Training_batch, env_config.get("test_steps", 1))
@@ -202,8 +202,8 @@ class PPOAgent:
         # Get Critic network predictions 
         values = self.Critic.predict([stock_states, commodity_states, wallet_states])
         next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
-        for i in range(len(rewards)):
-            print(actions[i], rewards[i], next_values[i], values[i])
+        # for i in range(len(rewards)):
+        #     print(actions[i], rewards[i], next_values[i], values[i])
 
         # Compute discounted rewards and advantages
         #discounted_r = self.discount_rewards(rewards)
@@ -299,10 +299,10 @@ class PPOAgent:
                 # self.env.render()
                 # Actor picks an action
                 action, logp_t = self.act(state)
-                print("jus", action[0])
-                for actn in action[0]:
-                    if abs(actn)>1:
-                        print("actn", actn)
+                # print("jus", action[0])
+                # for actn in action[0]:
+                #     if abs(actn)>1:
+                #         print("actn", actn)
                 # Retrieve new state, reward, and whether the state is terminal
                 next_state, reward, done, _ = self.env.step(action[0])
                 next_state = self.reshape_state(next_state)
