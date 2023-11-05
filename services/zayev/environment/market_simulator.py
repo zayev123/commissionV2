@@ -17,8 +17,9 @@ class MarketSimulator(gym.Env):
         self.n_step_cmmdties =  self.env_config.get("n_step_cmmdties")
         self.__initial_balance = 100000
         self.action_space = self.__get_actn_shape()
-        (stock_observation_space, commodity_observation_space, wallet_observation_space) = self.__get_obs_shape() 
-        self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space, wallet_observation_space))
+        (stock_observation_space, commodity_observation_space) = self.__get_obs_shape() 
+        self.wallet_state = self.__initial_balance
+        self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space))
         self.data_frames = data_frames
         self.max_episode_steps = self.env_config.get("max_episode_steps")
         self.__print_output = self.env_config.get("print_output")
@@ -60,10 +61,9 @@ class MarketSimulator(gym.Env):
 
         commodity_observation_space = spaces.Box(low=commodity_lower_bounds, high=commodity_upper_bounds)
 
-        wallet_observation_space = spaces.Box(low=0, high=float('inf'), shape=(1,))
 
                     
-        return (stock_observation_space, commodity_observation_space, wallet_observation_space)
+        return (stock_observation_space, commodity_observation_space)
     
     
     def get_prev_stock_prices_data(self, target_date):
@@ -142,9 +142,8 @@ class MarketSimulator(gym.Env):
         if init:
             stock_state = np.zeros((num_stocks, num_stock_attributes))
             commodity_state = np.zeros((num_commodities, num_cmmdty_attributes))
-            wallet_state = np.array([0])
         else:
-            (stock_state, commodity_state, wallet_state) = self.state
+            (stock_state, commodity_state) = self.state
 
         target_date = self.the_current_time_step
         stck_condition = self.stcks_buffer_df['captured_at'] == target_date
@@ -198,7 +197,7 @@ class MarketSimulator(gym.Env):
                 commodity_state[indx][ij] = prev_price
                 ij = ij + 1
                     
-        return (stock_state, commodity_state, wallet_state)
+        return (stock_state, commodity_state)
 
     
     def reset(self):
@@ -291,18 +290,18 @@ class MarketSimulator(gym.Env):
         copied_action = copy.deepcopy(action)
         self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         self.__step_no = self.__step_no + 1
-        (stock_state, commodity_state, wallet_state) = self.get_the_state()
+        (stock_state, commodity_state) = copy.deepcopy(self.get_the_state())
         if self.__print_output:
             print("")
             print(f"stepping_a {action}")
             print(commodity_state)
             print(stock_state)
-            print(wallet_state)
+            print(self.wallet_state)
 
 
         no_of_actions = len(action)
         no_of_actions = no_of_actions - 1
-        wallet_balance = wallet_state[0]
+        wallet_balance = self.wallet_state
         old_portfolio_value = wallet_balance
         total_freed_capital = wallet_balance
         current_portfolio_value = wallet_balance
@@ -313,6 +312,7 @@ class MarketSimulator(gym.Env):
         new_shares = {}
         flagged = False
         done = False
+
 
         for index in range(no_of_actions):
             stck_price = stock_state[index][1]
@@ -416,7 +416,7 @@ class MarketSimulator(gym.Env):
                 print("break_4")
         
         # freed_balance = total_freed_capital - total_value_bought
-        wallet_state[0] = total_freed_capital
+        self.wallet_state = total_freed_capital
         new_portfolio_value = total_freed_capital
         for index in range(no_of_actions):
             if new_shares[index] <= 0:
@@ -426,7 +426,20 @@ class MarketSimulator(gym.Env):
 
         reward = current_portfolio_value - old_portfolio_value #+ penalty
 
-        self.state = (stock_state, commodity_state, wallet_state)
+        stck_len = len(stock_state)
+        for s_index in range(stck_len):
+            for s_ind in range(9):
+                if s_ind not in [1,2,8]:
+                    stock_state[s_index][s_ind] = stock_state[s_index][s_ind]/stock_state[s_index][1]
+            stock_state[s_index][8] = stock_state[s_index][8]/stock_state[s_index][2]
+            stock_state[s_index][1] = 1
+            stock_state[s_index][2] = 1
+        
+        cmmdts_len = len(commodity_state)
+        for c_index in range(cmmdts_len):
+            commodity_state[c_index][1] = 1
+
+        self.state = (stock_state, commodity_state)
         info = {}
 
         if self.__step_no > self.max_episode_steps:

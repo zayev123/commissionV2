@@ -54,16 +54,13 @@ class PPOAgent:
         self.env = MarketSimulator(env_config=env_config)
         
         self.action_size = self.env.action_space.shape[0]
-        (stock_space, commodity_space, wallet_space) = self.env.observation_space
+        (stock_space, commodity_space) = self.env.observation_space
         stk_size = 1
         for stck_size in stock_space.shape:
             stk_size = stk_size * stck_size
         cmdt_siz = 1
         for cmmdty_size in commodity_space.shape:
             cmdt_siz = cmdt_siz * cmmdty_size
-        wlt_sz = 1
-        for wllt_size in wallet_space.shape:
-            wlt_sz = wlt_sz * wllt_size
         
 
 
@@ -185,23 +182,21 @@ class PPOAgent:
         return final_states
     
     def replay(
-            self, stock_states, commodity_states, wallet_states, 
+            self, stock_states, commodity_states, 
             actions, rewards, dones, 
-            next_stock_states, next_commodity_states, next_wallet_states, 
+            next_stock_states, next_commodity_states, 
             logp_ts
     ):
         stock_states = np.vstack(stock_states)
         commodity_states = np.vstack(commodity_states)
-        wallet_states = np.vstack(wallet_states)
         next_stock_states = np.vstack(next_stock_states)
         next_commodity_states = np.vstack(next_commodity_states)
-        next_wallet_states = np.vstack(next_wallet_states)
         actions = np.vstack(actions)
         logp_ts = np.vstack(logp_ts)
 
         # Get Critic network predictions 
-        values = self.Critic.predict([stock_states, commodity_states, wallet_states])
-        next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_wallet_states])
+        values = self.Critic.predict([stock_states, commodity_states])
+        next_values = self.Critic.predict([next_stock_states, next_commodity_states])
         # for i in range(len(rewards)):
         #     print(actions[i], rewards[i], next_values[i], values[i])
 
@@ -225,17 +220,17 @@ class PPOAgent:
         
         # training Actor and Critic networks
         a_loss = self.Actor.Actor.fit(
-            [stock_states, commodity_states, wallet_states], 
+            [stock_states, commodity_states], 
             y_true, epochs=self.epochs, 
             verbose=0, shuffle=self.shuffle
         )
         c_loss = self.Critic.Critic.fit(
-            [stock_states, commodity_states, wallet_states, values], 
+            [stock_states, commodity_states, values], 
             target, epochs=self.epochs, verbose=0, shuffle=self.shuffle
         )
 
         # calculate loss parameters (should be done in loss, but couldn't find working way how to do that with disabled eager execution)
-        pred = self.Actor.predict([stock_states, commodity_states, wallet_states])
+        pred = self.Actor.predict([stock_states, commodity_states])
         log_std = -0.5 * np.ones(self.action_size, dtype=np.float32)
         logp = self.gaussian_likelihood(actions, pred, log_std)
         approx_kl = np.mean(logp_ts - logp)
@@ -292,9 +287,9 @@ class PPOAgent:
         is_break = False
         while True:
             # Instantiate or reset games memory
-            stock_states, commodity_states, wallet_states, \
-            next_stock_states, next_commodity_states, next_wallet_states, \
-            actions, rewards, dones, logp_ts = [], [], [], [], [], [], [], [], [], []
+            stock_states, commodity_states, \
+            next_stock_states, next_commodity_states, \
+            actions, rewards, dones, logp_ts = [], [], [], [], [], [], [], []
             for t in range(self.Training_batch):
                 # self.env.render()
                 # Actor picks an action
@@ -309,11 +304,9 @@ class PPOAgent:
                 # Memorize (state, next_states, action, reward, done, logp_ts) for training
                 stock_states.append(state[0])
                 commodity_states.append(state[1])
-                wallet_states.append(state[2])
 
                 next_stock_states.append(next_state[0])
                 next_commodity_states.append(next_state[1])
-                next_wallet_states.append(next_state[2])
 
                 actions.append(action)
                 rewards.append(reward)
@@ -336,9 +329,9 @@ class PPOAgent:
                         is_break = True
 
             self.replay(
-                stock_states, commodity_states, wallet_states, 
+                stock_states, commodity_states, 
                 actions, rewards, dones, 
-                next_stock_states, next_commodity_states, next_wallet_states, 
+                next_stock_states, next_commodity_states, 
                 logp_ts
             )
             if self.episode >= self.EPISODES:
@@ -352,14 +345,13 @@ class PPOAgent:
         
 
     def reshape_state(self, state):
-        stock_observation, commodity_observation, wallet_observation = state
+        stock_observation, commodity_observation = state
 
         # Reshape and preprocess each component
         stock_observation = np.reshape(stock_observation, (1,) + stock_observation.shape)
         commodity_observation = np.reshape(commodity_observation, (1,) + commodity_observation.shape)
-        wallet_observation = np.reshape(wallet_observation, (1,) + wallet_observation.shape)
 
-        return [stock_observation, commodity_observation, wallet_observation]
+        return [stock_observation, commodity_observation]
 
     
     def test(self, test_episodes = 100):#evaluate
@@ -406,10 +398,8 @@ class PPOAgent:
 
         stock_states =   [[] for _ in range(num_worker)]
         commodity_states =   [[] for _ in range(num_worker)]
-        wallet_states =   [[] for _ in range(num_worker)]
         next_stock_states =   [[] for _ in range(num_worker)]
         next_commodity_states =   [[] for _ in range(num_worker)]
-        next_wallet_states =   [[] for _ in range(num_worker)]
         actions =       [[] for _ in range(num_worker)]
         rewards =       [[] for _ in range(num_worker)]
         dones =         [[] for _ in range(num_worker)]
@@ -420,20 +410,17 @@ class PPOAgent:
         worker_states = {
             "stock_tt": [],
             "commodity_tt": [],
-            "wallet_tt": []
         }
         for worker_id, parent_conn in enumerate(parent_conns):
             temp_state = self.reshape_state(parent_conn.recv())
             worker_states["stock_tt"].append(temp_state[0])
             worker_states["commodity_tt"].append(temp_state[1])
-            worker_states["wallet_tt"].append(temp_state[2])
 
         while self.episode < self.EPISODES:
             # get batch of action's and log_pi's
             action, logp_pi = self.act([
                 np.vstack(worker_states["stock_tt"]), 
                 np.vstack(worker_states["commodity_tt"]), 
-                np.vstack(worker_states["wallet_tt"])
             ])
             
             for worker_id, parent_conn in enumerate(parent_conns):
@@ -447,10 +434,8 @@ class PPOAgent:
                 
                 stock_states[worker_id].append(worker_states["stock_tt"][worker_id])
                 commodity_states[worker_id].append(worker_states["commodity_tt"][worker_id])
-                wallet_states[worker_id].append(worker_states["wallet_tt"][worker_id])
                 next_stock_states[worker_id].append(next_state[0])
                 next_commodity_states[worker_id].append(next_state[1])
-                next_wallet_states[worker_id].append(next_state[2])
                 rewards[worker_id].append(reward)
                 dones[worker_id].append(done)
                 state[worker_id] = next_state
@@ -470,18 +455,16 @@ class PPOAgent:
             for worker_id in range(num_worker):
                 if len(stock_states[worker_id]) >= self.Training_batch:
                     self.replay(
-                        stock_states[worker_id], commodity_states[worker_id], wallet_states[worker_id],
+                        stock_states[worker_id], commodity_states[worker_id],
                         actions[worker_id], rewards[worker_id], dones[worker_id], 
-                        next_stock_states[worker_id], next_commodity_states[worker_id], next_wallet_states[worker_id], 
+                        next_stock_states[worker_id], next_commodity_states[worker_id],
                         logp_ts[worker_id]
                     )
 
                     stock_states[worker_id] = []
                     commodity_states[worker_id] = []
-                    wallet_states[worker_id] = []
                     next_stock_states[worker_id] = []
                     next_commodity_states[worker_id] = []
-                    next_wallet_states[worker_id] = []
                     actions[worker_id] = []
                     rewards[worker_id] = []
                     dones[worker_id] = []
