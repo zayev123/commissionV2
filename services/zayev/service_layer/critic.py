@@ -7,21 +7,23 @@ import numpy as np
 class Critic_Model:
     def __init__(self, env, lr, optimizer):
         self.env = env
-        (stock_space, commodity_space) = self.env.observation_space
+        (stock_space, commodity_space, volume_space) = self.env.observation_space
         stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
         commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
+        volume_input = Input(shape=volume_space.shape, name='volume_observation_input')
         flattened_stock_input = Flatten()(stock_input)
         flattened_commodity_input = Flatten()(commodity_input)
-        obs_input = Concatenate(name='ppo_input')([flattened_stock_input, flattened_commodity_input])
+        flattened_volume_input = Flatten()(volume_input)
+        obs_input = Concatenate(name='ppo_input')([flattened_stock_input, flattened_commodity_input, flattened_volume_input])
         X_input = Flatten()(obs_input)
         old_values = Input(shape=(1,))
 
         V = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
         V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
-        # V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
         value = Dense(1, activation=None)(V)
 
-        self.Critic = Model(inputs=[stock_input, commodity_input, old_values], outputs = value)
+        self.Critic = Model(inputs=[stock_input, commodity_input, volume_input, old_values], outputs = value)
         self.Critic.compile(loss=[self.critic_PPO2_loss(old_values)], optimizer=optimizer(lr=lr))
 
     def critic_PPO2_loss(self, values):
@@ -37,5 +39,5 @@ class Critic_Model:
         return loss
 
     def predict(self, state):
-        [stock_state, commodity_state] = state
-        return self.Critic.predict([stock_state, commodity_state, np.zeros((stock_state.shape[0], 1))])
+        [stock_state, commodity_state, volume_state] = state
+        return self.Critic.predict([stock_state, commodity_state, volume_state, np.zeros((stock_state.shape[0], 1))])

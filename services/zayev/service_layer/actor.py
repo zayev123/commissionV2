@@ -18,27 +18,33 @@ class Actor_Model:
 
         self.env = env
         # self.env = env
-        (stock_space, commodity_space) = self.env.observation_space
+        (stock_space, commodity_space, volume_space) = self.env.observation_space
         stock_input = Input(shape=stock_space.shape, name='stock_observation_input')
         commodity_input = Input(shape=commodity_space.shape, name='commodity_observation_input')
+        volume_input = Input(shape=volume_space.shape, name='volume_observation_input')
         flattened_stock_input = Flatten()(stock_input)
         flattened_commodity_input = Flatten()(commodity_input)
-        obs_input = Concatenate(name='ppo_input')([flattened_stock_input, flattened_commodity_input])
+        flattened_volume_input = Flatten()(volume_input)
+        obs_input = Concatenate(name='ppo_input')([flattened_stock_input, flattened_commodity_input, flattened_volume_input])
         X_input = Flatten()(obs_input)
         self.action_shape = self.env.action_space.shape[0]
         
         X = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
         X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
-        # X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         output = Dense(self.action_shape, activation="tanh")(X)
         scaled_output = Lambda(lambda x: self.custom_activation(x))(output)
 
-        self.Actor = Model(inputs=[stock_input, commodity_input], outputs = scaled_output)
+        self.Actor = Model(inputs=[stock_input, commodity_input, volume_input], outputs = scaled_output)
         self.Actor.compile(loss=self.ppo_loss_continuous, optimizer=optimizer(lr=lr))
         # print(self.Actor.summary())
 
     def custom_activation(self, x):
         neg_mask = x < 0
+        neg_sum = tf.reduce_sum(tf.boolean_mask(x, neg_mask))
+
+        ratio_x = tf.abs(1.0) / tf.abs(neg_sum)
+        x = tf.where(neg_mask & (neg_sum>-1), x * ratio_x, x)
         neg_sum = tf.reduce_sum(tf.boolean_mask(x, neg_mask))
 
         pos_mask = x > 0

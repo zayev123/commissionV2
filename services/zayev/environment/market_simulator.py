@@ -17,12 +17,14 @@ class MarketSimulator(gym.Env):
         self.n_step_cmmdties =  self.env_config.get("n_step_cmmdties")
         self.__initial_balance = 100000
         self.action_space = self.__get_actn_shape()
-        (stock_observation_space, commodity_observation_space) = self.__get_obs_shape() 
+        (stock_observation_space, commodity_observation_space, volumes_observation_space) = self.__get_obs_shape() 
         self.wallet_state = self.__initial_balance
-        self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space))
+        self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space, volumes_observation_space))
         self.data_frames = data_frames
         self.max_episode_steps = self.env_config.get("max_episode_steps")
         self.__print_output = self.env_config.get("print_output")
+        self.is_test = self.env_config.get("is_test", False)
+        self.shares_data = {}
         self.reset()
         
     
@@ -47,12 +49,12 @@ class MarketSimulator(gym.Env):
     
     def __get_obs_shape(self):
         no_of_stocks = 5
-        stock_observation_shape = (no_of_stocks, 9 + self.n_step_stocks)
+        stock_observation_shape = (no_of_stocks, self.n_step_stocks)
         stock_lower_bounds = np.zeros(stock_observation_shape)
         stock_upper_bounds = np.full(stock_observation_shape, float('inf'))
         
         no_of_cmmdts = 6
-        commodity_observation_shape = (no_of_cmmdts, 2 + self.n_step_cmmdties) 
+        commodity_observation_shape = (no_of_cmmdts, self.n_step_cmmdties) 
 
         commodity_lower_bounds = np.zeros(commodity_observation_shape)
         commodity_upper_bounds = np.full(commodity_observation_shape, float('inf'))
@@ -61,9 +63,11 @@ class MarketSimulator(gym.Env):
 
         commodity_observation_space = spaces.Box(low=commodity_lower_bounds, high=commodity_upper_bounds)
 
+        volumes_observation_space = spaces.Box(low=stock_lower_bounds, high=stock_upper_bounds)
+
 
                     
-        return (stock_observation_space, commodity_observation_space)
+        return (stock_observation_space, commodity_observation_space, volumes_observation_space)
     
     
     def get_prev_stock_prices_data(self, target_date):
@@ -71,33 +75,43 @@ class MarketSimulator(gym.Env):
         target_dates = [0 for nstk in range(self.n_step_stocks+1)]
         num_stocks = self.observation_space[0].shape[0]
         for nstk in range(self.n_step_stocks+1):
-            target_dates[nstk] = tme
+            target_dates[nstk] = tme # [date6, date5, ...]
             tme = tme - relativedelta(hours=2, minutes=30)
 
-        stock_prev_prices = np.zeros((num_stocks, self.n_step_stocks+1))
+        stock_prev_prices = np.zeros((num_stocks, self.n_step_stocks+1, 2))
         
-        for dt in range(self.n_step_stocks+1):
+        for dt in range(self.n_step_stocks+1): # [date6, date5, ...]
             a_date = target_dates[dt]
-            a_stck_condition = self.stcks_buffer_df['captured_at'] == a_date
+            a_stck_condition = self.stcks_buffer_df['captured_at'] == a_date # ==date6
             a_filtered_stck_df = self.stcks_buffer_df.loc[a_stck_condition]
             a_stcks_buffer_df = a_filtered_stck_df.to_dict(orient='records')
             for a_stck in a_stcks_buffer_df:
                 indx = a_stck["index"] -1
-                stock_prev_prices[indx][dt] = a_stck["price_snapshot"]
+                stock_prev_prices[indx][dt][0] = a_stck["price_snapshot"]
+                stock_prev_prices[indx][dt][1] = a_stck["volume"]
 
-        price_perc_changes = np.zeros((num_stocks, self.n_step_stocks))
+        price_perc_changes = np.zeros((num_stocks, self.n_step_stocks, 2))
         copy_prev_prices = copy.deepcopy(stock_prev_prices)
-        cpy_prev_prices = np.zeros((num_stocks, self.n_step_stocks))
+        cpy_prev_prices = np.zeros((num_stocks, self.n_step_stocks, 2))
         for a_indx in range(num_stocks):
-            for price_change_index in range(self.n_step_stocks):
-                last_price_index = price_change_index+1
+            for price_change_index in range(self.n_step_stocks): # [date6, date5, ...]
+                last_price_index = price_change_index+1 # date5
                 cpy_prev_prices[a_indx][price_change_index] = copy_prev_prices[a_indx][last_price_index]
-                if copy_prev_prices[a_indx][last_price_index] != 0.0:
-                    price_perc_changes[a_indx][price_change_index] = (copy_prev_prices[a_indx][price_change_index] - copy_prev_prices[a_indx][last_price_index])/copy_prev_prices[a_indx][last_price_index]
+                if copy_prev_prices[a_indx][last_price_index][0] != 0.0: # @date5 != 0
+                    price_perc_changes[a_indx][price_change_index][0] = (
+                        copy_prev_prices[a_indx][price_change_index][0] - copy_prev_prices[a_indx][last_price_index][0]
+                    )/copy_prev_prices[a_indx][last_price_index][0]
                 else:
-                    price_perc_changes[a_indx][price_change_index] = 0.0
+                    price_perc_changes[a_indx][price_change_index][0] = 0.0
+                
+                if copy_prev_prices[a_indx][last_price_index][1] != 0.0: # @date5 != 0
+                    price_perc_changes[a_indx][price_change_index][1] = (
+                        copy_prev_prices[a_indx][price_change_index][1] - copy_prev_prices[a_indx][last_price_index][1]
+                    )/copy_prev_prices[a_indx][last_price_index][1]
+                else:
+                    price_perc_changes[a_indx][price_change_index][1] = 0.0
             # print("stock_prev_prices", stock_prev_prices)
-        return cpy_prev_prices
+        return price_perc_changes
             
     def get_prev_cmmdty_prices_data(self, target_date):
         tme = target_date
@@ -130,7 +144,7 @@ class MarketSimulator(gym.Env):
                 else:
                     price_perc_changes[a_indx][price_change_index] = 0.0
 
-        return cpy_prev_prices
+        return price_perc_changes
 
 
     
@@ -142,8 +156,9 @@ class MarketSimulator(gym.Env):
         if init:
             stock_state = np.zeros((num_stocks, num_stock_attributes))
             commodity_state = np.zeros((num_commodities, num_cmmdty_attributes))
+            volume_state = np.zeros((num_stocks, num_stock_attributes))
         else:
-            (stock_state, commodity_state) = self.state
+            (stock_state, commodity_state, volume_state) = self.state
 
         target_date = self.the_current_time_step
         stck_condition = self.stcks_buffer_df['captured_at'] == target_date
@@ -156,48 +171,46 @@ class MarketSimulator(gym.Env):
         cmmdties_buffer_df = filtered_cmmdty_df.to_dict(orient='records')
         prev_cmmdty_prices_data = self.get_prev_cmmdty_prices_data(target_date=target_date)
 
+        
+        self.stock_data = {}
+        for d_stck in stcks_buffer_df:
+            if d_stck["index"] not in self.stock_data:
+                self.stock_data[d_stck["index"]] = d_stck
+
+            if init:
+                available_per_stock = self.__initial_balance/5
+                if d_stck["price_snapshot"] == 0:
+                    self.shares_data[d_stck["index"]] = 0
+                else:
+                    self.shares_data[d_stck["index"]] = available_per_stock/d_stck["price_snapshot"]
+
         for a_stck in stcks_buffer_df:
             indx = a_stck["index"] -1
-            if init:
-                stock_state[indx][7] = a_stck["price_snapshot"]
-                available_per_stock = self.__initial_balance/5
-                if a_stck["price_snapshot"] == 0:
-                    shares = 0
-                else:
-                    shares = available_per_stock/a_stck["price_snapshot"]
-                stock_state[indx][8] = shares
-            else:
-                # set new shares in the step function
-                stock_state[indx][7] = stock_state[indx][1]
-            # stock_state[indx][0] = a_stck["captured_at"]
-            stock_state[indx][1] = a_stck["price_snapshot"]
-            stock_state[indx][2] = a_stck["volume"]
-            stock_state[indx][3] = a_stck["bid_vol"]
-            stock_state[indx][4] = a_stck["bid_price"]
-            stock_state[indx][5] = a_stck["offer_vol"]
-            stock_state[indx][6] = a_stck["offer_price"]
-            
             prev_prices = prev_stck_prices_data[indx]
-            ij = 9
+            ij = 0
             # print(f"prev_prices{indx}", prev_prices)
             for prev_price in prev_prices:
-                stock_state[indx][ij] = prev_price
+                stock_state[indx][ij] = prev_price[0]
+                volume_state[indx][ij] = prev_price[1]
                 ij = ij + 1
 
             # print(f"stock_state[{indx}]", stock_state[indx])
         
 
+        self.commodty_data = {}
+        for d_cmmdty in cmmdties_buffer_df:
+            if d_cmmdty["index"] not in self.commodty_data:
+                self.commodty_data[d_cmmdty["index"]] = d_cmmdty
+
         for a_cmmdty in cmmdties_buffer_df:
             indx = a_cmmdty["index"] - 1
-            # commodity_state[indx][0] = a_cmmdty["captured_at"]
-            commodity_state[indx][1] = a_cmmdty["price_snapshot"]
             prev_prices = prev_cmmdty_prices_data[indx]
-            ij = 2
+            ij = 0
             for prev_price in prev_prices:
                 commodity_state[indx][ij] = prev_price
                 ij = ij + 1
-                    
-        return (stock_state, commodity_state)
+        
+        return (stock_state, commodity_state, volume_state)
 
     
     def reset(self):
@@ -286,17 +299,18 @@ class MarketSimulator(gym.Env):
 
     
     def step(self, action):
-        # if we took an action, we were in state 1
+        # if the sign changes and a profit was made, then give it a reward, else dont do anything
         copied_action = copy.deepcopy(action)
+        old_shares_data = copy.deepcopy(self.shares_data)
         self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         self.__step_no = self.__step_no + 1
-        (stock_state, commodity_state) = copy.deepcopy(self.get_the_state())
+        (stck_state, cmmdty_state, volume_state) = copy.deepcopy(self.get_the_state())
         if self.__print_output:
             print("")
             print(f"stepping_a {action}")
-            print(commodity_state)
-            print(stock_state)
-            print(self.wallet_state)
+            print(stck_state)
+            print(cmmdty_state)
+            print(volume_state)
 
 
         no_of_actions = len(action)
@@ -313,21 +327,23 @@ class MarketSimulator(gym.Env):
         flagged = False
         done = False
 
-
         for index in range(no_of_actions):
-            stck_price = stock_state[index][1]
-            old_stock_price = stock_state[index][7]
-            current_no_of_shares = stock_state[index][8]
+            data_index = index +1
+            stck_price = self.stock_data[data_index]["price_snapshot"]
+            chng = self.stock_data[data_index]["change"]
+            old_stock_price = stck_price/(1+chng)
+            current_no_of_shares = self.shares_data[data_index]
 
             old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
             current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
 
         for index in range(no_of_actions):
-            bid_vol = stock_state[index][3]
+            data_index = index +1
+            bid_vol = self.stock_data[data_index]["bid_vol"]
             action_amount = copied_action[index]*current_portfolio_value
 
-            bid_price = stock_state[index][4]
-            offer_price = stock_state[index][6]
+            bid_price = self.stock_data[data_index]["bid_price"]
+            offer_price = self.stock_data[data_index]["offer_price"]
             if action_amount > 0:
                 change_in_shares = action_amount/offer_price       
             else:
@@ -343,14 +359,16 @@ class MarketSimulator(gym.Env):
             print("new_actions", action)
 
         for index in range(no_of_actions):
-            stck_price = stock_state[index][1]
-            stck_vol = stock_state[index][2]
-            bid_vol = stock_state[index][3]
-            bid_price = stock_state[index][4]
-            offer_vol = stock_state[index][5]
-            offer_price = stock_state[index][6]
-            old_stock_price = stock_state[index][7]
-            current_no_of_shares = stock_state[index][8]
+            data_index = index +1
+            stck_price = self.stock_data[data_index]["price_snapshot"]
+            stck_vol = self.stock_data[data_index]["volume"]
+            bid_vol = self.stock_data[data_index]["bid_vol"]
+            bid_price = self.stock_data[data_index]["bid_price"]
+            offer_vol = self.stock_data[data_index]["offer_vol"]
+            offer_price = self.stock_data[data_index]["offer_price"]
+            chng = self.stock_data[data_index]["change"]
+            old_stock_price = stck_price/(1+chng)
+            current_no_of_shares = self.shares_data[data_index]
 
             change_in_shares = action[index]
             
@@ -376,14 +394,16 @@ class MarketSimulator(gym.Env):
                 new_shares[index] = current_no_of_shares
 
         for index in range(no_of_actions):
-            stck_price = stock_state[index][1]
-            stck_vol = stock_state[index][2]
-            bid_vol = stock_state[index][3]
-            bid_price = stock_state[index][4]
-            offer_vol = stock_state[index][5]
-            offer_price = stock_state[index][6]
-            old_stock_price = stock_state[index][7]
-            current_no_of_shares = stock_state[index][8]
+            data_index = index +1
+            stck_price = self.stock_data[data_index]["price_snapshot"]
+            stck_vol = self.stock_data[data_index]["volume"]
+            bid_vol = self.stock_data[data_index]["bid_vol"]
+            bid_price = self.stock_data[data_index]["bid_price"]
+            offer_vol = self.stock_data[data_index]["offer_vol"]
+            offer_price = self.stock_data[data_index]["offer_price"]
+            chng = self.stock_data[data_index]["change"]
+            old_stock_price = stck_price/(1+chng)
+            current_no_of_shares = self.shares_data[data_index]
 
             change_in_shares = self.__get_action_change(action, index)
                 
@@ -419,37 +439,77 @@ class MarketSimulator(gym.Env):
         self.wallet_state = total_freed_capital
         new_portfolio_value = total_freed_capital
         for index in range(no_of_actions):
+            data_index = index +1
             if new_shares[index] <= 0:
                 new_shares[index] = 1
-            stock_state[index][8] = new_shares[index]
-            new_portfolio_value = new_portfolio_value + stock_state[index][8]*stock_state[index][1]
+            self.shares_data[data_index] = new_shares[index]
+            new_portfolio_value = new_portfolio_value + self.shares_data[data_index]*self.stock_data[data_index]["price_snapshot"]
 
         reward = current_portfolio_value - old_portfolio_value #+ penalty
 
-        stck_len = len(stock_state)
-        for s_index in range(stck_len):
-            for s_ind in range(9):
-                if s_ind not in [1,2,8]:
-                    stock_state[s_index][s_ind] = stock_state[s_index][s_ind]/stock_state[s_index][1]
-            stock_state[s_index][8] = stock_state[s_index][8]/stock_state[s_index][2]
-            stock_state[s_index][1] = 1
-            stock_state[s_index][2] = 1
         
-        cmmdts_len = len(commodity_state)
-        for c_index in range(cmmdts_len):
-            commodity_state[c_index][1] = 1
 
-        self.state = (stock_state, commodity_state)
+        self.state = (stck_state, cmmdty_state, volume_state)
         info = {}
+
+        if self.is_test:
+            (is_valid_output, output) = self.test_output_validity(
+                self.the_current_time_step, 
+                self.shares_data, 
+                old_shares_data,
+                stck_state,
+                self.stcks_buffer_df 
+            )
+
+            if not is_valid_output:
+                print(output)
 
         if self.__step_no > self.max_episode_steps:
             done = True
 
         if self.__print_output:
             print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
-            print(commodity_state)
-            print(stock_state)
+            print(self.stock_data)
+            print(self.shares_data)
             print("")
 
         return self.state, reward, done, info
+    
+    def test_output_validity(self, new_time, new_shares, old_shares, new_stock_state, dfs):
+        new_stck_condition = dfs['captured_at'] == new_time
+        new_filtered_stck_df = dfs.loc[new_stck_condition]
+        new_stcks_buffer_df = new_filtered_stck_df.to_dict(orient='records')
+        new_stock_data = {}
+        for new_data in new_stcks_buffer_df:
+            if new_data["index"] not in new_stock_data:
+                new_stock_data[new_data["index"]] = new_data
+        previous_time_step = new_time - relativedelta(hours=2, minutes=30)
+        old_stck_condition = dfs['captured_at'] == previous_time_step
+        old_filtered_stck_df = dfs.loc[old_stck_condition]
+        old_stcks_buffer_df = old_filtered_stck_df.to_dict(orient='records')
+        old_stock_data = {}
+        for old_data in old_stcks_buffer_df:
+            if old_data["index"] not in old_stock_data:
+                old_stock_data[old_data["index"]] = old_data
+        change_in_shares = {}
+        for indx in new_shares:
+            change_in_shares[indx] = new_shares[indx] - old_shares[indx]
+        
+        for indx, chng in change_in_shares.items():
+            if chng>0:
+                if chng > old_stock_data[indx]["offer_vol"]:
+                    return (False, f"indx, {indx} chng > offer_vol {chng}> {old_stock_data[indx]['offer_vol']}")
+            if chng<0:
+                if abs(chng) > old_stock_data[indx]["bid_vol"]:
+                    return (False, f"indx, {indx} chng > bid_vol {chng}> {old_stock_data[indx]['bid_vol']}")
+                
+        
+        for indx in new_stock_data:
+            new_price = new_stock_data[indx]["price_snapshot"]
+            old_price = old_stock_data[indx]["price_snapshot"]
+            change = (new_price - old_price)/old_price
+            if change!=new_stock_state[indx-1][0]:
+                return (False, f"indx, {indx} change != stock_state {change} != {new_stock_state[indx-1][0]}")
+
+        return (True, "success")
 

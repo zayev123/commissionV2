@@ -54,13 +54,7 @@ class PPOAgent:
         self.env = MarketSimulator(env_config=env_config)
         
         self.action_size = self.env.action_space.shape[0]
-        (stock_space, commodity_space) = self.env.observation_space
-        stk_size = 1
-        for stck_size in stock_space.shape:
-            stk_size = stk_size * stck_size
-        cmdt_siz = 1
-        for cmmdty_size in commodity_space.shape:
-            cmdt_siz = cmdt_siz * cmmdty_size
+        (stock_space, commodity_space, volume_space) = self.env.observation_space
         
 
 
@@ -182,21 +176,23 @@ class PPOAgent:
         return final_states
     
     def replay(
-            self, stock_states, commodity_states, 
+            self, stock_states, commodity_states, volume_states,
             actions, rewards, dones, 
-            next_stock_states, next_commodity_states, 
+            next_stock_states, next_commodity_states, next_volume_states,
             logp_ts
     ):
         stock_states = np.vstack(stock_states)
         commodity_states = np.vstack(commodity_states)
+        volume_states = np.vstack(volume_states)
         next_stock_states = np.vstack(next_stock_states)
         next_commodity_states = np.vstack(next_commodity_states)
+        next_volume_states = np.vstack(next_volume_states)
         actions = np.vstack(actions)
         logp_ts = np.vstack(logp_ts)
 
         # Get Critic network predictions 
-        values = self.Critic.predict([stock_states, commodity_states])
-        next_values = self.Critic.predict([next_stock_states, next_commodity_states])
+        values = self.Critic.predict([stock_states, commodity_states, volume_states])
+        next_values = self.Critic.predict([next_stock_states, next_commodity_states, next_volume_states])
         # for i in range(len(rewards)):
         #     print(actions[i], rewards[i], next_values[i], values[i])
 
@@ -220,17 +216,17 @@ class PPOAgent:
         
         # training Actor and Critic networks
         a_loss = self.Actor.Actor.fit(
-            [stock_states, commodity_states], 
+            [stock_states, commodity_states, volume_states], 
             y_true, epochs=self.epochs, 
             verbose=0, shuffle=self.shuffle
         )
         c_loss = self.Critic.Critic.fit(
-            [stock_states, commodity_states, values], 
+            [stock_states, commodity_states, volume_states, values], 
             target, epochs=self.epochs, verbose=0, shuffle=self.shuffle
         )
 
         # calculate loss parameters (should be done in loss, but couldn't find working way how to do that with disabled eager execution)
-        pred = self.Actor.predict([stock_states, commodity_states])
+        pred = self.Actor.predict([stock_states, commodity_states, volume_states])
         log_std = -0.5 * np.ones(self.action_size, dtype=np.float32)
         logp = self.gaussian_likelihood(actions, pred, log_std)
         approx_kl = np.mean(logp_ts - logp)
@@ -287,9 +283,9 @@ class PPOAgent:
         is_break = False
         while True:
             # Instantiate or reset games memory
-            stock_states, commodity_states, \
-            next_stock_states, next_commodity_states, \
-            actions, rewards, dones, logp_ts = [], [], [], [], [], [], [], []
+            stock_states, commodity_states, volume_states, \
+            next_stock_states, next_commodity_states, next_volume_states, \
+            actions, rewards, dones, logp_ts = [], [], [], [], [], [], [], [], [], []
             for t in range(self.Training_batch):
                 # self.env.render()
                 # Actor picks an action
@@ -304,9 +300,11 @@ class PPOAgent:
                 # Memorize (state, next_states, action, reward, done, logp_ts) for training
                 stock_states.append(state[0])
                 commodity_states.append(state[1])
+                volume_states.append(state[2])
 
                 next_stock_states.append(next_state[0])
                 next_commodity_states.append(next_state[1])
+                next_volume_states.append(next_state[2])
 
                 actions.append(action)
                 rewards.append(reward)
@@ -329,9 +327,9 @@ class PPOAgent:
                         is_break = True
 
             self.replay(
-                stock_states, commodity_states, 
+                stock_states, commodity_states, volume_states,
                 actions, rewards, dones, 
-                next_stock_states, next_commodity_states, 
+                next_stock_states, next_commodity_states, next_volume_states,
                 logp_ts
             )
             if self.episode >= self.EPISODES:
@@ -345,13 +343,14 @@ class PPOAgent:
         
 
     def reshape_state(self, state):
-        stock_observation, commodity_observation = state
+        stock_observation, commodity_observation, volume_observation = state
 
         # Reshape and preprocess each component
         stock_observation = np.reshape(stock_observation, (1,) + stock_observation.shape)
         commodity_observation = np.reshape(commodity_observation, (1,) + commodity_observation.shape)
+        volume_observation = np.reshape(volume_observation, (1,) + volume_observation.shape)
 
-        return [stock_observation, commodity_observation]
+        return [stock_observation, commodity_observation, volume_observation]
 
     
     def test(self, test_episodes = 100):#evaluate
@@ -543,11 +542,3 @@ class PPOAgent:
         cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names)
 
         return [stck_df, cmmdties_df, stcks_buffer_df, cmmdties_buffer_df] 
-            
-
-if __name__ == "__main__":
-    env_name = 'BipedalWalker-v3'
-    agent = PPOAgent(env_name)
-    agent.run_batch() # train as PPO
-    #agent.run_multiprocesses(num_worker = 16)  # train PPO multiprocessed (fastest)
-    # agent.test()
