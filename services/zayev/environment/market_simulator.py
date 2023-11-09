@@ -1,5 +1,6 @@
 import copy
 from datetime import datetime
+from math import ceil, floor
 import gymnasium as gym
 from matplotlib.dates import relativedelta
 from gymnasium import spaces
@@ -25,6 +26,7 @@ class MarketSimulator(gym.Env):
         self.__print_output = self.env_config.get("print_output")
         self.is_test = self.env_config.get("is_test", False)
         self.shares_data = {}
+        self.change_in_shares = {}
         self.reset()
         
     
@@ -215,7 +217,13 @@ class MarketSimulator(gym.Env):
     
     def reset(self):
         the_current_time_step = self.env_config.get("the_current_time_step")
-        __last_time_step = the_current_time_step + relativedelta(hours=505)
+        if self.max_episode_steps%2:
+            minutes = 30
+        else: 
+            minutes = 0
+        d_hrs = floor(2.5*(self.max_episode_steps+5))
+
+        __last_time_step = the_current_time_step + relativedelta(hours=d_hrs, minutes=minutes)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.__last_time_step = pytz.utc.localize(datetime.strptime(str(__last_time_step), '%Y-%m-%d %H:%M:%S'))
         str_time_step = str(self.the_current_time_step)
@@ -327,6 +335,16 @@ class MarketSimulator(gym.Env):
         flagged = False
         done = False
 
+        reward = 0
+        if self.change_in_shares:
+            for indx in self.change_in_shares:
+                reward = reward+ stck_state[indx-1][0]*self.change_in_shares[indx]
+        
+        for indx in range(no_of_actions):
+            data_index = indx +1
+            self.change_in_shares[data_index] = action[indx]
+
+        # print(self.the_current_time_step, self.stock_data)
         for index in range(no_of_actions):
             data_index = index +1
             stck_price = self.stock_data[data_index]["price_snapshot"]
@@ -444,8 +462,6 @@ class MarketSimulator(gym.Env):
                 new_shares[index] = 1
             self.shares_data[data_index] = new_shares[index]
             new_portfolio_value = new_portfolio_value + self.shares_data[data_index]*self.stock_data[data_index]["price_snapshot"]
-
-        reward = current_portfolio_value - old_portfolio_value #+ penalty
 
         
 

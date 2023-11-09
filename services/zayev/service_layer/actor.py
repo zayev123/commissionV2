@@ -31,7 +31,7 @@ class Actor_Model:
         
         X = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
         X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
-        X = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
+        X = Dense(128, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X)
         output = Dense(self.action_shape, activation="tanh")(X)
         scaled_output = Lambda(lambda x: self.custom_activation(x))(output)
 
