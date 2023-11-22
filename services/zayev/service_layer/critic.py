@@ -37,8 +37,8 @@ class Critic_Model:
             v_loss1 = (y_true - clipped_value_loss) ** 2
             v_loss2 = (y_true - y_pred) ** 2
             
-            value_loss = 0.5 * K.mean(K.maximum(v_loss1, v_loss2))
-            #value_loss = K.mean((y_true - y_pred) ** 2) # standard PPO loss
+            # value_loss = 0.5 * K.mean(K.maximum(v_loss1, v_loss2))
+            value_loss = K.mean((y_true - y_pred) ** 2) # standard PPO loss
             return value_loss
         return loss
 

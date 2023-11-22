@@ -68,7 +68,7 @@ class Actor_Model:
     
     def ppo_loss_continuous(self, y_true, y_pred):
         advantages, actions, logp_old_ph, = y_true[:, :1], y_true[:, 1:1+self.action_shape], y_true[:, 1+self.action_shape]
-        LOSS_CLIPPING = 0.2
+        LOSS_CLIPPING = 0.8
         logp = self.gaussian_likelihood(actions, y_pred)
 
         ratio = K.exp(logp - logp_old_ph)
