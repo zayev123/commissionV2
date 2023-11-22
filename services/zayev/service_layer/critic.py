@@ -18,9 +18,13 @@ class Critic_Model:
         X_input = Flatten()(obs_input)
         old_values = Input(shape=(1,))
 
-        V = Dense(512, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(X_input)
         V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
-        V = Dense(128, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
+        V = Dense(256, activation="relu", kernel_initializer=tf.random_normal_initializer(stddev=0.01))(V)
         value = Dense(1, activation=None)(V)
 
         self.Critic = Model(inputs=[stock_input, commodity_input, volume_input, old_values], outputs = value)
