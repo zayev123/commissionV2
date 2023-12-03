@@ -27,6 +27,7 @@ class MarketSimulator(gym.Env):
         self.is_test = self.env_config.get("is_test", False)
         self.shares_data = {}
         self.change_in_shares = {}
+        self.preparing = self.env_config.get("preparing", False)
         self.reset()
         
     
@@ -323,7 +324,10 @@ class MarketSimulator(gym.Env):
 
         no_of_actions = len(action)
         no_of_actions = no_of_actions - 1
-        wallet_balance = self.wallet_state
+        if self.preparing:
+            wallet_balance = self.__initial_balance
+        else:
+            wallet_balance = self.wallet_state
         old_portfolio_value = wallet_balance
         total_freed_capital = wallet_balance
         current_portfolio_value = wallet_balance
