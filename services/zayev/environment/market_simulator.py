@@ -482,7 +482,7 @@ class MarketSimulator(gym.Env):
             )
 
             if not is_valid_output:
-                print(output)
+                print("test output:", output)
 
         if self.__step_no > self.max_episode_steps:
             done = True
@@ -517,11 +517,11 @@ class MarketSimulator(gym.Env):
         
         for indx, chng in change_in_shares.items():
             if chng>0:
-                if chng > old_stock_data[indx]["offer_vol"]:
-                    return (False, f"indx, {indx} chng > offer_vol {chng}> {old_stock_data[indx]['offer_vol']}")
+                if chng > new_stock_data[indx]["offer_vol"]:
+                    return (False, f"indx, {indx} chng > offer_vol {chng}> {new_stock_data[indx]['offer_vol']}")
             if chng<0:
-                if abs(chng) > old_stock_data[indx]["bid_vol"]:
-                    return (False, f"indx, {indx} chng > bid_vol {chng}> {old_stock_data[indx]['bid_vol']}")
+                if abs(chng) > new_stock_data[indx]["bid_vol"]:
+                    return (False, f"indx, {indx} chng > bid_vol {chng}> {new_stock_data[indx]['bid_vol']}")
                 
         
         for indx in new_stock_data:
