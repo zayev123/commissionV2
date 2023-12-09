@@ -218,11 +218,12 @@ class MarketSimulator(gym.Env):
     
     def reset(self):
         the_current_time_step = self.env_config.get("the_current_time_step")
-        if self.max_episode_steps%2:
+        max_epi_len = 2*self.max_episode_steps
+        if max_epi_len%2:
             minutes = 30
         else: 
             minutes = 0
-        d_hrs = floor(2.5*(self.max_episode_steps+5))
+        d_hrs = floor(2.5*(max_epi_len+5))
 
         __last_time_step = the_current_time_step + relativedelta(hours=d_hrs, minutes=minutes)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
