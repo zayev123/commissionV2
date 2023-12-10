@@ -17,8 +17,30 @@ class Forester:
         self.test_input = []
         self.test_output = []
 
-    def act_random(self):
+    def act_random(self, best_acts = None):
+        rand_acts = np.zeros(6)
         random_actions = np.random.uniform(-1, 1, 6)
+        if best_acts is not None:
+            for ind in range(len(best_acts)):
+                if best_acts[ind] < 5:
+                    best_acts[ind] = 0
+                elif best_acts[ind] < 10:
+                    best_acts[ind] = 5
+                elif best_acts[ind] == 10:
+                    pass
+                elif best_acts[ind] < 15:
+                    best_acts[ind] = 15
+                else:
+                    best_acts[ind] = 18
+            new_acts = (best_acts - 10)/10
+            wallet_act = -1*(tf.reduce_sum(new_acts))
+            if wallet_act >1:
+                wallet_act = 1
+            elif wallet_act <-1:
+                wallet_act = -1
+            array1_padded = np.pad(new_acts, (0, len(rand_acts) - len(new_acts)), mode='constant')
+            random_actions = array1_padded
+            random_actions[5] = wallet_act
         scaled_actions = self.scale_actions(random_actions)
         return scaled_actions
 
@@ -135,17 +157,19 @@ class Forester:
                 result_gen_data = np.array(new_stock_prices)
                 classified_output = self.classify_output(result_gen_data)
 
-                thresh = np.random.random()
-                if thresh >= self.eps: 
-                #     print(f"eps {a_stp}")
-                #     self.test_input.append(input_gen_data)
-                #     self.test_output.append(classified_output)
+                # thresh = np.random.random()
+                # if thresh >= self.eps: 
+                # #     print(f"eps {a_stp}")
+                # #     self.test_input.append(input_gen_data)
+                # #     self.test_output.append(classified_output)
+                # # else:
+                #     self.train_input.append(input_gen_data)
+                #     self.train_output.append(classified_output)
+                #     #     print("input_ken_data")
                 # else:
-                    self.train_input.append(input_gen_data)
-                    self.train_output.append(classified_output)
-                    #     print("input_ken_data")
-                else:
-                    self.test_input.append(deepcopy(input_gen_data))
-                    self.test_output.append(deepcopy(classified_output))
+                #     self.test_input.append(deepcopy(input_gen_data))
+                #     self.test_output.append(deepcopy(classified_output))
+                self.train_input.append(input_gen_data)
+                self.train_output.append(classified_output)
                 # print(self.train_input)
                 # print(self.train_output)
