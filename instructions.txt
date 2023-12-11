@@ -1,6 +1,13 @@
 source v2env/bin/activate
 
+
+find . -path "*/migrations/*.py" -not -name "__init__.py" -delete
+find . -path "*/migrations/*.pyc"  -delete
+find . -path "*/__pycache__/*.pyc"  -delete
+
+
 psql -U traderadmin -d traderdb
+psql -U mirbilal -d postgres
 
 DROP DATABASE traderdb;
 DROP USER traderadmin;
@@ -11,7 +18,10 @@ ALTER ROLE traderadmin SET client_encoding TO 'utf8';
 ALTER ROLE traderadmin SET default_transaction_isolation TO 'read committed';
 ALTER ROLE traderadmin SET timezone TO 'UTC';
 GRANT ALL PRIVILEGES ON DATABASE traderdb TO traderadmin;
+ALTER USER traderadmin WITH SUPERUSER;
 
+
+psql -h localhost -U traderadmin -d traderdb -W
 git remote set-url origin https://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@github.com/zayev123/commissionV2.git
 
 pip cache purge

@@ -1,17 +1,32 @@
 from django.contrib import admin
-
-from apps.scraper_pipes.models import Sector, Stock, StockBuffer
+from apps.environment.models import (
+    Commodity, 
+    CommodityBuffer,
+    Stock,
+    StockBuffer,
+)
 
 # Register your models here.
-
-@admin.register(Sector)
-class SectorAdmin(admin.ModelAdmin):
+@admin.register(Commodity)
+class CommodityAdmin(admin.ModelAdmin):
     list_display = [
-        'index', 
-        'name', 
+        'index',
+        'id', 
+        'name',
+    ]
+    search_fields = ['index', 'name', 'avg_forward_steps']
+
+
+@admin.register(CommodityBuffer)
+class CommodityBufferAdmin(admin.ModelAdmin):
+    list_display = [
+        'captured_at',
+        'commodity', 
+        'price_snapshot', 
         'id', 
     ]
-    search_fields = ['index', 'name']
+    search_fields = ['commodity__name', 'captured_at']
+
 
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
@@ -19,6 +34,7 @@ class StockAdmin(admin.ModelAdmin):
         'index', 
         'id', 
         'name', 
+
     ]
     search_fields = ['index', 'name']
 

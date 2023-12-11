@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class ScraperPipesConfig(AppConfig):
+class EnvironmentConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'apps.scraper_pipes'
+    name = 'apps.environment'
