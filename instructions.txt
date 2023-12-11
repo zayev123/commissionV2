@@ -19,3 +19,19 @@ pip cache purge
 pip freeze > requirements.txt
 pip install -r requirements.txt
 
+commodity symbols:
+
+GC=F
+LBR=F
+ZW=F
+ZR=F
+SB=F
+KC=F
+SI=F
+IRON
+HG=F
+ZINC-USD
+BZ=F
+MTF=F
+NG=F
+
