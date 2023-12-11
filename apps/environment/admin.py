@@ -33,10 +33,11 @@ class StockAdmin(admin.ModelAdmin):
     list_display = [
         'index', 
         'id', 
+        "symbol",
         'name', 
-
+        "type",
     ]
-    search_fields = ['index', 'name']
+    search_fields = ['index', 'name', "type"]
 
 
 @admin.register(StockBuffer)

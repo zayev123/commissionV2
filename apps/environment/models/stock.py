@@ -3,6 +3,8 @@ from django.db import models
 class Stock(models.Model):
     name = models.CharField(max_length=300)
     index = models.IntegerField(blank=True, null=True)
+    type = models.IntegerField(blank=True, null=True)
+    symbol = models.CharField(max_length=300, blank=True, null=True)
     
     def __str__(self):
         return f"{str(self.id)}, " + str(self.index) + ', ' + str(self.name)
