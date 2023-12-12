@@ -13,6 +13,7 @@ class CommodityAdmin(admin.ModelAdmin):
         'index',
         'id', 
         'name',
+        'symbol',
     ]
     search_fields = ['index', 'name', 'avg_forward_steps']
 

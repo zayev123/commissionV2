@@ -26,6 +26,10 @@ class StockBuffer(models.Model):
     bid_price = models.FloatField(blank=True, null=True)
     offer_vol = models.FloatField(blank=True, null=True)
     offer_price = models.FloatField(blank=True, null=True)
+    open = models.FloatField(blank=True, null=True)
+    close = models.FloatField(blank=True, null=True)
+    high = models.FloatField(blank=True, null=True)
+    low = models.FloatField(blank=True, null=True)
 
 
 

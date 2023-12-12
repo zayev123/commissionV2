@@ -2,6 +2,7 @@ from django.db import models
 
 
 class Commodity(models.Model):
+    symbol = models.CharField(max_length=300, blank=True, null=True)
     name = models.CharField(max_length=300)
     index = models.IntegerField(blank=True, null=True)
     units = models.CharField(max_length=30, blank=True, null=True)
