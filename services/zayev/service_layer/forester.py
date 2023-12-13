@@ -17,9 +17,12 @@ class Forester:
         self.test_input = []
         self.test_output = []
 
+        self.no_of_stocks = market.no_of_stocks
+        self.no_of_cmmdts = market.no_of_cmmdts
+
     def act_random(self, best_acts = None):
-        rand_acts = np.zeros(6)
-        random_actions = np.random.uniform(-1, 1, 6)
+        rand_acts = np.zeros(self.no_of_stocks+1)
+        random_actions = np.random.uniform(-1, 1, self.no_of_stocks+1)
         if best_acts is not None:
             for ind in range(len(best_acts)):
                 if best_acts[ind] < 5:
@@ -40,7 +43,7 @@ class Forester:
                 wallet_act = -1
             array1_padded = np.pad(new_acts, (0, len(rand_acts) - len(new_acts)), mode='constant')
             random_actions = array1_padded
-            random_actions[5] = wallet_act
+            random_actions[-1] = wallet_act
         scaled_actions = self.scale_actions(random_actions)
         return scaled_actions
 

@@ -16,27 +16,29 @@ class MarketSimulator(gym.Env):
         self.env_config = env_config
         self.n_step_stocks =  self.env_config.get("n_step_stocks")
         self.n_step_cmmdties =  self.env_config.get("n_step_cmmdties")
+        self.is_live = self.env_config.get("is_live", False)
+        self.no_of_stocks = self.env_config.get("no_of_stocks", None)
+        self.no_of_cmmdts = self.env_config.get("no_of_cmmdts", None)
+        self.preparing = self.env_config.get("preparing", False)
+        self.max_episode_steps = self.env_config.get("max_episode_steps")
+        self.__print_output = self.env_config.get("print_output")
+        self.is_test = self.env_config.get("is_test", False)
         self.__initial_balance = 100000
         self.action_space = self.__get_actn_shape()
         (stock_observation_space, commodity_observation_space, volumes_observation_space) = self.__get_obs_shape() 
         self.wallet_state = self.__initial_balance
         self.observation_space = spaces.Tuple((stock_observation_space, commodity_observation_space, volumes_observation_space))
         self.data_frames = data_frames
-        self.max_episode_steps = self.env_config.get("max_episode_steps")
-        self.__print_output = self.env_config.get("print_output")
-        self.is_test = self.env_config.get("is_test", False)
         self.shares_data = {}
         self.change_in_shares = {}
-        self.preparing = self.env_config.get("preparing", False)
         self.reset()
         
     
     def __get_actn_shape(self):
-        no_of_stocks = 5
         wallet = 1
-        no_of_actions = no_of_stocks + wallet
+        no_of_actions = self.no_of_stocks + wallet
 
-        # actns = [list(range(-1000,1001,1)) for i in range(no_of_stocks)]
+        # actns = [list(range(-1000,1001,1)) for i in range(self.no_of_stocks)]
         # num_possible_values = 2001  # 2001 values from -1000 to 1000 (inclusive)
         # actn_shape = gym.spaces.MultiDiscrete(np.array([[1001, 2],[1001, 2],[1001, 2],[1001, 2],[1001, 2]]))
         # amount_shape = gym.spaces.MultiDiscrete([1001,1001,1001,1001,1001])
@@ -51,13 +53,11 @@ class MarketSimulator(gym.Env):
         return actn_shape
     
     def __get_obs_shape(self):
-        no_of_stocks = 5
-        stock_observation_shape = (no_of_stocks, self.n_step_stocks)
+        stock_observation_shape = (self.no_of_stocks, self.n_step_stocks)
         stock_lower_bounds = np.zeros(stock_observation_shape)
         stock_upper_bounds = np.full(stock_observation_shape, float('inf'))
         
-        no_of_cmmdts = 6
-        commodity_observation_shape = (no_of_cmmdts, self.n_step_cmmdties) 
+        commodity_observation_shape = (self.no_of_cmmdts, self.n_step_cmmdties) 
 
         commodity_lower_bounds = np.zeros(commodity_observation_shape)
         commodity_upper_bounds = np.full(commodity_observation_shape, float('inf'))
@@ -79,7 +79,13 @@ class MarketSimulator(gym.Env):
         num_stocks = self.observation_space[0].shape[0]
         for nstk in range(self.n_step_stocks+1):
             target_dates[nstk] = tme # [date6, date5, ...]
-            tme = tme - relativedelta(hours=2, minutes=30)
+            if self.is_live:
+                for dyIndx in range(1,4):
+                    previous_time_step: datetime = tme - relativedelta(days=dyIndx)
+                    if previous_time_step.weekday() not in [5, 6]:
+                        break
+            else:
+                tme = tme - relativedelta(hours=2, minutes=30)
 
         stock_prev_prices = np.zeros((num_stocks, self.n_step_stocks+1, 2))
         
@@ -122,7 +128,13 @@ class MarketSimulator(gym.Env):
         num_cmmdties = self.observation_space[1].shape[0]
         for ncmdt in range(self.n_step_cmmdties+1):
             target_dates[ncmdt] = tme
-            tme = tme - relativedelta(hours=2, minutes=30)
+            if self.is_live:
+                for dyIndx in range(1,4):
+                    previous_time_step: datetime = tme - relativedelta(days=dyIndx)
+                    if previous_time_step.weekday() not in [5, 6]:
+                        break
+            else:
+                tme = tme - relativedelta(hours=2, minutes=30)
 
         cmmdty_prev_prices = np.zeros((num_cmmdties, self.n_step_cmmdties+1))
         
@@ -225,6 +237,7 @@ class MarketSimulator(gym.Env):
             minutes = 0
         d_hrs = floor(2.5*(max_epi_len+5))
 
+        
         __last_time_step = the_current_time_step + relativedelta(hours=d_hrs, minutes=minutes)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.__last_time_step = pytz.utc.localize(datetime.strptime(str(__last_time_step), '%Y-%m-%d %H:%M:%S'))
@@ -312,7 +325,13 @@ class MarketSimulator(gym.Env):
         # if the sign changes and a profit was made, then give it a reward, else dont do anything
         copied_action = copy.deepcopy(action)
         old_shares_data = copy.deepcopy(self.shares_data)
-        self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
+        if self.is_live:
+            for dyIndx in range(1,4):
+                self.the_current_time_step: datetime = self.the_current_time_step + relativedelta(days=dyIndx)
+                if self.the_current_time_step.weekday() not in [5, 6]:
+                    break
+        else:
+            self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         self.__step_no = self.__step_no + 1
         (stck_state, cmmdty_state, volume_state) = copy.deepcopy(self.get_the_state())
         if self.__print_output:
@@ -504,7 +523,13 @@ class MarketSimulator(gym.Env):
         for new_data in new_stcks_buffer_df:
             if new_data["index"] not in new_stock_data:
                 new_stock_data[new_data["index"]] = new_data
-        previous_time_step = new_time - relativedelta(hours=2, minutes=30)
+        if self.is_live:
+            for dyIndx in range(1,4):
+                previous_time_step: datetime = new_time - relativedelta(days=dyIndx)
+                if previous_time_step.weekday() not in [5, 6]:
+                    break
+        else:
+            previous_time_step = new_time - relativedelta(hours=2, minutes=30)
         old_stck_condition = dfs['captured_at'] == previous_time_step
         old_filtered_stck_df = dfs.loc[old_stck_condition]
         old_stcks_buffer_df = old_filtered_stck_df.to_dict(orient='records')
