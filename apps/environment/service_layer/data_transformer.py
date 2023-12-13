@@ -17,6 +17,7 @@ class DataTransformer:
         last_time_step = the_current_time_step + relativedelta(days=self.max_epi_len)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.last_time_step = pytz.utc.localize(datetime.strptime(str(last_time_step), '%Y-%m-%d %H:%M:%S'))
+        self.added_days = 500
 
     @staticmethod
     def retreive_stocks_buffers():
@@ -167,7 +168,8 @@ class DataTransformer:
 
     def start_raw_input_dataframes(self):
         str_time_step = str(self.the_current_time_step)
-        str_last_time_step = str(self.last_time_step)
+        last_time_step = self.last_time_step + relativedelta(days=self.added_days)
+        str_last_time_step = str(last_time_step)
         db_params = self.env_config.get("db_params")
         db_conn = psycopg2.connect(**db_params)
         cursor = db_conn.cursor()
@@ -220,7 +222,8 @@ class DataTransformer:
 
     def create_working_days(self):
         # Create a list of working days within the date range
-        working_days = pd.date_range(start=self.the_current_time_step, end=self.last_time_step, freq='B')
+        added_end_date = self.last_time_step + relativedelta(days=self.added_days)
+        working_days = pd.date_range(start=self.the_current_time_step, end=added_end_date, freq='B')
 
         # Repeat rows for each index from 1 to 100
         stk_index_range = range(1, 101)
@@ -310,7 +313,10 @@ class DataTransformer:
         self.create_working_days()
         self.populate_missing_stock_days()
         self.populate_missing_commodity_days()
-
+        self.stck_df.fillna(0, inplace=True)
+        self.cmmdties_df.fillna(0, inplace=True)
+        self.stcks_buffer_df.fillna(0, inplace=True)
+        self.cmmdties_buffer_df.fillna(0, inplace=True)
         return [
             self.stck_df,
             self.cmmdties_df,

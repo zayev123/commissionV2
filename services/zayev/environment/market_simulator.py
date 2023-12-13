@@ -178,16 +178,19 @@ class MarketSimulator(gym.Env):
         target_date = self.the_current_time_step
         stck_condition = self.stcks_buffer_df['captured_at'] == target_date
         filtered_stck_df = self.stcks_buffer_df.loc[stck_condition]
+        # filtered_stck_df = filtered_stck_df[filtered_stck_df['id'] != 0]
         stcks_buffer_df = filtered_stck_df.to_dict(orient='records')
         prev_stck_prices_data = self.get_prev_stock_prices_data(target_date=target_date)
 
         cmmdty_condition = self.cmmdties_buffer_df['captured_at'] == target_date
         filtered_cmmdty_df = self.cmmdties_buffer_df.loc[cmmdty_condition]
+        # filtered_cmmdty_df = filtered_cmmdty_df[filtered_cmmdty_df['id'] != 0]
         cmmdties_buffer_df = filtered_cmmdty_df.to_dict(orient='records')
         prev_cmmdty_prices_data = self.get_prev_cmmdty_prices_data(target_date=target_date)
 
         
         self.stock_data = {}
+        # print(stcks_buffer_df)
         for d_stck in stcks_buffer_df:
             if d_stck["index"] not in self.stock_data:
                 self.stock_data[d_stck["index"]] = d_stck
@@ -240,6 +243,11 @@ class MarketSimulator(gym.Env):
         
         __last_time_step = the_current_time_step + relativedelta(hours=d_hrs, minutes=minutes)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
+        if self.is_live:
+            for dyIndx in range(0,4):
+                self.the_current_time_step: datetime = self.the_current_time_step + relativedelta(days=dyIndx)
+                if self.the_current_time_step.weekday() not in [5, 6]:
+                    break
         self.__last_time_step = pytz.utc.localize(datetime.strptime(str(__last_time_step), '%Y-%m-%d %H:%M:%S'))
         str_time_step = str(self.the_current_time_step)
         self.__step_no = 0
@@ -435,7 +443,6 @@ class MarketSimulator(gym.Env):
             if change_in_shares == 0:
                 new_shares[index] = current_no_of_shares
 
-        print(new_shares)
         for index in range(no_of_actions):
             data_index = index +1
             stck_price = self.stock_data[data_index]["price_snapshot"]
@@ -483,7 +490,6 @@ class MarketSimulator(gym.Env):
         new_portfolio_value = total_freed_capital
         for index in range(no_of_actions):
             data_index = index +1
-            print(index, data_index, new_shares)
             if new_shares[index] <= 0:
                 new_shares[index] = 1
             self.shares_data[data_index] = new_shares[index]
