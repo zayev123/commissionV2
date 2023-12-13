@@ -8,6 +8,8 @@ from psx import stocks
 import yfinance as yf
 import psycopg2
 import pandas as pd
+import os
+from joblib import dump
 
 class DataTransformer:
     def __init__(self, env_config: dict):
@@ -17,7 +19,11 @@ class DataTransformer:
         last_time_step = the_current_time_step + relativedelta(days=self.max_epi_len)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.last_time_step = pytz.utc.localize(datetime.strptime(str(last_time_step), '%Y-%m-%d %H:%M:%S'))
+        today = pytz.utc.localize(datetime.now())
         self.added_days = 500
+        rem_days = today - self.last_time_step
+        if rem_days.days - 500 <0:
+            self.added_days = rem_days.days
 
     @staticmethod
     def retreive_stocks_buffers():
@@ -98,7 +104,7 @@ class DataTransformer:
             #     break
 
     @staticmethod
-    def retreive_commodities_data():
+    def retreive_commodities_buffers():
         all_commodities = Commodity.objects.all()
 
         commodity_syms = {}
@@ -323,3 +329,20 @@ class DataTransformer:
             self.stcks_buffer_df,
             self.cmmdties_buffer_df
         ]
+    
+    @staticmethod
+    def get_new_file_path():
+        base_path = '/Users/mirbilal/Desktop/MobCommission/commissionV2/apps/environment/joblibs/'
+        file_name = 'trading_job_v'
+
+        # Step 1: Determine the latest version number
+        existing_versions = [f for f in os.listdir(base_path) if f.startswith(file_name)]
+        latest_version = max(map(lambda x: int(x[len(file_name):]), existing_versions), default=0)
+
+        # Step 2: Increment the version number
+        new_version = latest_version + 1
+
+        # Step 3: Create the new file with the incremented version number
+        current_file_path = f"{base_path}{file_name}{latest_version}"
+        new_file_path = f"{base_path}{file_name}{new_version}"
+        return (current_file_path, new_file_path)
