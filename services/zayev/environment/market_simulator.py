@@ -81,8 +81,8 @@ class MarketSimulator(gym.Env):
             target_dates[nstk] = tme # [date6, date5, ...]
             if self.is_live:
                 for dyIndx in range(1,4):
-                    previous_time_step: datetime = tme - relativedelta(days=dyIndx)
-                    if previous_time_step.weekday() not in [5, 6]:
+                    tme: datetime = tme - relativedelta(days=dyIndx)
+                    if tme.weekday() not in [5, 6]:
                         break
             else:
                 tme = tme - relativedelta(hours=2, minutes=30)
@@ -130,8 +130,8 @@ class MarketSimulator(gym.Env):
             target_dates[ncmdt] = tme
             if self.is_live:
                 for dyIndx in range(1,4):
-                    previous_time_step: datetime = tme - relativedelta(days=dyIndx)
-                    if previous_time_step.weekday() not in [5, 6]:
+                    tme: datetime = tme - relativedelta(days=dyIndx)
+                    if tme.weekday() not in [5, 6]:
                         break
             else:
                 tme = tme - relativedelta(hours=2, minutes=30)
@@ -435,6 +435,7 @@ class MarketSimulator(gym.Env):
             if change_in_shares == 0:
                 new_shares[index] = current_no_of_shares
 
+        print(new_shares)
         for index in range(no_of_actions):
             data_index = index +1
             stck_price = self.stock_data[data_index]["price_snapshot"]
@@ -482,6 +483,7 @@ class MarketSimulator(gym.Env):
         new_portfolio_value = total_freed_capital
         for index in range(no_of_actions):
             data_index = index +1
+            print(index, data_index, new_shares)
             if new_shares[index] <= 0:
                 new_shares[index] = 1
             self.shares_data[data_index] = new_shares[index]

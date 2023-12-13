@@ -2,8 +2,8 @@ from datetime import datetime, date
 
 from matplotlib.dates import relativedelta
 import pytz
-from models.commodity import Commodity, CommodityBuffer
-from models.stock import Stock, StockBuffer
+from apps.environment.models.commodity import Commodity, CommodityBuffer
+from apps.environment.models.stock import Stock, StockBuffer
 from psx import stocks
 import yfinance as yf
 import psycopg2
@@ -223,23 +223,24 @@ class DataTransformer:
         working_days = pd.date_range(start=self.the_current_time_step, end=self.last_time_step, freq='B')
 
         # Repeat rows for each index from 1 to 100
-        index_range = range(1, 101)
+        stk_index_range = range(1, 101)
 
         # Create a DataFrame with the specified structure
         stcks_data = {'captured_at': [], 'change': [], 'index': []}
 
         for date in working_days:
-            for idx in index_range:
+            for idx in stk_index_range:
                 stcks_data['captured_at'].append(date)
                 stcks_data['change'].append(0)
                 stcks_data['index'].append(idx)
 
         self.stcks_working_day_df = pd.DataFrame(stcks_data)
 
+        cmmdty_index_range = range(1, 15)
         cmmdts_data = {'captured_at': [], 'index': []}
 
         for date in working_days:
-            for idx in index_range:
+            for idx in cmmdty_index_range:
                 cmmdts_data['captured_at'].append(date)
                 cmmdts_data['index'].append(idx)
 
