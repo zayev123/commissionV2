@@ -20,9 +20,9 @@ class DataTransformer:
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.last_time_step = pytz.utc.localize(datetime.strptime(str(last_time_step), '%Y-%m-%d %H:%M:%S'))
         today = pytz.utc.localize(datetime.now())
-        self.added_days = 500
+        self.added_days = 1500
         rem_days = today - self.last_time_step
-        if rem_days.days - 500 <0:
+        if rem_days.days - 1500 <0:
             self.added_days = rem_days.days
 
     @staticmethod
@@ -59,8 +59,10 @@ class DataTransformer:
                 start_from = date(2020, 1, 1)
             else:
                 start_from = last_date
-            print(last_date, stck_sym, start_from)
             end_date = pytz.utc.localize(datetime.now() + relativedelta(days=2)).date()
+            start_from = date(2016, 1, 1)
+            end_date = date(2020, 6, 1)
+            print(last_date, stck_sym, start_from)
             data = stocks(stck_sym, start=start_from, end=end_date)
             data_points_len = len(data)
             stck_snpshts = stck_data["snapshots"]
@@ -138,8 +140,10 @@ class DataTransformer:
             else:
                 start_from = date(2019, 12, 30)
                 # start_from = last_date
-            print(last_date, cmmdty_sym, start_from)
             end_date = pytz.utc.localize(datetime.now() + relativedelta(days=2)).date()
+            start_from = date(2016, 1, 1)
+            end_date = date(2020, 6, 1)
+            print(last_date, cmmdty_sym, start_from)
             data = yf.download(cmmdty_sym, start=start_from, end=end_date)
             data_points_len = len(data)
             cmmdty_snpshts = cmmdty_data["snapshots"]
@@ -331,9 +335,12 @@ class DataTransformer:
         ]
     
     @staticmethod
-    def get_new_file_path():
+    def get_new_file_path(chosen_stock = None):
         base_path = '/Users/mirbilal/Desktop/MobCommission/commissionV2/apps/environment/joblibs/'
-        file_name = 'trading_job_v'
+        if chosen_stock:
+            file_name = f'trading_stock_{chosen_stock}_job_v'
+        else:
+            file_name = 'trading_job_v'
 
         # Step 1: Determine the latest version number
         existing_versions = [f for f in os.listdir(base_path) if f.startswith(file_name)]

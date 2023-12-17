@@ -29,6 +29,9 @@ pip cache purge
 pip freeze > requirements.txt
 pip install -r requirements.txt
 
+git rm -rf --cached .
+git add .
+
 commodity symbols:
 
 GC=F

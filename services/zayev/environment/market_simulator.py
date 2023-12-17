@@ -200,7 +200,7 @@ class MarketSimulator(gym.Env):
                 if d_stck["price_snapshot"] == 0:
                     self.shares_data[d_stck["index"]] = 0
                 else:
-                    self.shares_data[d_stck["index"]] = available_per_stock/d_stck["price_snapshot"]
+                    self.shares_data[d_stck["index"]] = 3
 
         for a_stck in stcks_buffer_df:
             indx = a_stck["index"] -1

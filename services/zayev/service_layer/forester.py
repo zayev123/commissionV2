@@ -19,13 +19,22 @@ class Forester:
 
         self.no_of_stocks = market.no_of_stocks
         self.no_of_cmmdts = market.no_of_cmmdts
+        self.stock_index = market.env_config.get("training_stock_index", None)
+        if self.stock_index and self.stock_index > 0:
+            self.stock_index = self.stock_index - 1
 
-    def act_random(self, best_acts = None):
+    def act_random(self, best_acts = None, use_best_stks = False):
+        best_stks = [4, 79, 59, 17, 53, 54, 18, 24, 68, 95, 35, 80]
         rand_acts = np.zeros(self.no_of_stocks+1)
         random_actions = np.random.uniform(-1, 1, self.no_of_stocks+1)
         if best_acts is not None:
             for ind in range(len(best_acts)):
-                if best_acts[ind] < 5:
+                if self.stock_index:
+                    if ind != self.stock_index:
+                        best_acts[ind] = 10
+                elif ind+1 not in best_stks and use_best_stks:
+                    best_acts[ind] = 10
+                elif best_acts[ind] < 5:
                     best_acts[ind] = 0
                 elif best_acts[ind] < 10:
                     best_acts[ind] = 5
@@ -126,10 +135,12 @@ class Forester:
         # print("----------")
         return classified_output
     
-    @staticmethod
-    def get_flattened_states(state):
+    def get_flattened_states(self,state):
         (curr_stock_state, curr_commodity_state, curr_volume_state) = state
-        v1 = curr_stock_state.flatten()
+        if self.stock_index:
+            v1 = curr_stock_state[self.stock_index].flatten()
+        else:
+            v1 = curr_stock_state.flatten()
         v2 = curr_commodity_state.flatten()
         v3 = curr_volume_state.flatten()
         input_data = np.concatenate((v1, v2, v3))
@@ -145,7 +156,10 @@ class Forester:
         for a_stp in range(self.sim_steps):
             if a_stp > self.start_learning_after_steps:
                 (curr_stock_state, curr_commodity_state, curr_volume_state) = self.market.state
-                v1 = curr_stock_state.flatten()
+                if self.stock_index:
+                    v1 = curr_stock_state[self.stock_index].flatten()
+                else:
+                    v1 = curr_stock_state.flatten()
                 v2 = curr_commodity_state.flatten()
                 v3 = curr_volume_state.flatten()
                 input_gen_data = deepcopy(np.concatenate((v1, v2, v3)))
@@ -159,6 +173,10 @@ class Forester:
                 new_stock_prices = new_stock_state[:, 0]
                 result_gen_data = np.array(new_stock_prices)
                 classified_output = self.classify_output(result_gen_data)
+                if self.stock_index:
+                    classified_output = classified_output[self.stock_index]
+                else:
+                    pass
 
                 # thresh = np.random.random()
                 # if thresh >= self.eps: 
