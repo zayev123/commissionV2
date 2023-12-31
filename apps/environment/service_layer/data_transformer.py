@@ -326,6 +326,8 @@ class DataTransformer:
         self.stck_df.fillna(0, inplace=True)
         self.cmmdties_df.fillna(0, inplace=True)
         self.stcks_buffer_df.fillna(0, inplace=True)
+        self.stcks_buffer_df['14_day_ma'] = self.stcks_buffer_df.groupby('stock_id')['close'].rolling(window=14).mean().reset_index(level=0, drop=True)
+        self.stcks_buffer_df.fillna(0, inplace=True)
         self.cmmdties_buffer_df.fillna(0, inplace=True)
         return [
             self.stck_df,
