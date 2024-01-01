@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime, date
 
 from matplotlib.dates import relativedelta
@@ -20,13 +21,16 @@ class DataTransformer:
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.last_time_step = pytz.utc.localize(datetime.strptime(str(last_time_step), '%Y-%m-%d %H:%M:%S'))
         today = pytz.utc.localize(datetime.now())
+        self.temp_data_date = env_config.get("temp_data_date", None)
+        if self.temp_data_date:
+            self.temp_data_date = pytz.utc.localize(datetime.strptime(str(self.temp_data_date), '%Y-%m-%d'))
         self.added_days = 1500
         rem_days = today - self.last_time_step
         if rem_days.days - 1500 <0:
             self.added_days = rem_days.days
 
     @staticmethod
-    def retreive_stocks_buffers():
+    def get_stk_snpshots():
         all_stocks = Stock.objects.all()
 
         stock_syms = {}
@@ -50,6 +54,11 @@ class DataTransformer:
                     stck_snps[snapshot.captured_at.strftime('%Y-%m-%d %H:%M:%S')] = snapshot
                     if not snp_data["last_date"]:
                         snp_data["last_date"] = snapshot.captured_at.date()
+        return (all_stocks, stock_syms, snapshots)
+    
+    @staticmethod
+    def retreive_stocks_buffers():
+        (all_stocks, stock_syms, snapshots) = DataTransformer.get_stk_snpshots()
 
         # tst = 1
         for stck_sym, stck_data in stock_syms.items():
@@ -60,8 +69,8 @@ class DataTransformer:
             else:
                 start_from = last_date
             end_date = pytz.utc.localize(datetime.now() + relativedelta(days=2)).date()
-            start_from = date(2016, 1, 1)
-            end_date = date(2020, 6, 1)
+            # start_from = date(2016, 1, 1)
+            # end_date = date(2020, 6, 1)
             print(last_date, stck_sym, start_from)
             data = stocks(stck_sym, start=start_from, end=end_date)
             data_points_len = len(data)
@@ -138,11 +147,10 @@ class DataTransformer:
             if last_date is None:
                 start_from = date(2019, 12, 30)
             else:
-                start_from = date(2019, 12, 30)
-                # start_from = last_date
+                start_from = last_date
             end_date = pytz.utc.localize(datetime.now() + relativedelta(days=2)).date()
-            start_from = date(2016, 1, 1)
-            end_date = date(2020, 6, 1)
+            # start_from = date(2016, 1, 1)
+            # end_date = date(2020, 6, 1)
             print(last_date, cmmdty_sym, start_from)
             data = yf.download(cmmdty_sym, start=start_from, end=end_date)
             data_points_len = len(data)
@@ -205,6 +213,25 @@ class DataTransformer:
         stcks_buffer_data = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
         self.stcks_buffer_df = pd.DataFrame(stcks_buffer_data, columns=column_names)
+        stk_latest_captured_at_str = str(self.stcks_buffer_df['captured_at'].max())
+        stk_latest_captured_at = datetime.strptime(stk_latest_captured_at_str, '%Y-%m-%d %H:%M:%S%z')
+
+        if self.temp_data_date and self.temp_data_date > stk_latest_captured_at:
+            temp_date_str = self.env_config.get("temp_data_date", None)
+            unq_stcks = Stock.objects.all()
+            unq_stcks_dict = {}
+            for astck in unq_stcks:
+                if astck.symbol not in unq_stcks_dict:
+                    unq_stcks_dict[astck.symbol] = astck
+            data_to_add = []
+            (data_to_add, data_to_fill) = self.get_data_to_add(self.temp_data_date, temp_date_str)
+
+            
+            new_df = pd.DataFrame(data_to_add)
+            self.stcks_buffer_df = pd.concat([self.stcks_buffer_df, new_df], ignore_index=True)
+
+
+
 
         # stcks_buffer_df = stcks_buffer_df.to_dict(orient='records')
 
@@ -219,6 +246,20 @@ class DataTransformer:
         cmmdties_buffer_data = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
         self.cmmdties_buffer_df = pd.DataFrame(cmmdties_buffer_data, columns=column_names)
+
+        cmd_latest_captured_at_str = str(self.stcks_buffer_df['captured_at'].max())
+        cmd_latest_captured_at = datetime.strptime(cmd_latest_captured_at_str, '%Y-%m-%d %H:%M:%S%z')
+
+        
+        if self.temp_data_date:
+            latest_date_indices = self.cmmdties_buffer_df.groupby('index')['captured_at'].idxmax()
+            for index in latest_date_indices:
+                new_row = self.cmmdties_buffer_df.loc[[index]].copy()
+                new_date = pd.to_datetime(self.temp_data_date)
+                latest_captured_at = new_row['captured_at'].max()
+                if new_date > latest_captured_at:
+                    new_row['captured_at'] = new_date
+                    self.cmmdties_buffer_df = pd.concat([self.cmmdties_buffer_df, new_row], ignore_index=True)
         # cmmdties_buffer_df = cmmdties_buffer_df.to_dict(orient='records')
 
         cmmdties_query = """
@@ -229,6 +270,74 @@ class DataTransformer:
         cmmdties_data = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
         self.cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names) 
+
+    @staticmethod
+    def get_data_to_add(temp_data_date, temp_date_str):
+        unq_stcks = Stock.objects.all()
+        unq_stcks_dict = {}
+        for astck in unq_stcks:
+            if astck.symbol not in unq_stcks_dict:
+                unq_stcks_dict[astck.symbol] = astck
+        data_to_add = []
+        data_to_fill = {}
+        base_path = '/Users/mirbilal/Downloads/'
+        file_path = f"{base_path}{temp_date_str}.csv"
+        new_data = pd.read_csv(file_path).to_dict(orient='records')
+        for nw_data in new_data:
+            unq_stk_sym = nw_data["SYMBOL"]
+            if unq_stk_sym not in unq_stcks_dict:
+                continue
+            unq_stk: Stock = unq_stcks_dict[unq_stk_sym]
+            stck_to_add = {}
+            stck_to_add["id"] = 0.01
+            stck_to_add["captured_at"] = temp_data_date
+            stck_to_add["price_snapshot"] = str(nw_data["CURRENT"]).replace(",", "")
+            stck_to_add["change"] = float(str(nw_data["CHANGE"]).replace(",", ""))/100
+            stck_to_add["volume"] = int(nw_data["VOLUME"].replace(",", ""))
+            stck_to_add["bid_vol"] = 100000000.0
+            stck_to_add["bid_price"] = str(nw_data["CURRENT"]).replace(",", "")
+            stck_to_add["offer_vol"] = 100000000.0
+            stck_to_add["offer_price"] = str(nw_data["CURRENT"]).replace(",", "")
+            stck_to_add["stock_id"] = unq_stk.id
+            stck_to_add["close"] = str(nw_data["CURRENT"]).replace(",", "")
+            stck_to_add["high"] = str(nw_data["HIGH"]).replace(",", "")
+            stck_to_add["low"] = str(nw_data["LOW"]).replace(",", "")
+            stck_to_add["open"] = str(nw_data["OPEN"]).replace(",", "")
+            stck_to_add["index"] = unq_stk.index
+            data_to_add.append(stck_to_add)
+            stck_to_fill = deepcopy(stck_to_add)
+            stck_to_fill["obj"] = unq_stk
+            data_to_fill[unq_stk_sym] = stck_to_fill
+        return (data_to_add, data_to_fill)
+    
+    @staticmethod
+    def fill_new_data(temp_data_date: datetime, temp_date_str):
+        new_obs = []
+        (data_to_add, data_to_fill) = DataTransformer.get_data_to_add(temp_data_date, temp_date_str)
+        time_point_str = temp_data_date.strftime('%Y-%m-%d %H:%M:%S')
+        (all_stocks, stock_syms, snapshots) = DataTransformer.get_stk_snpshots()
+        for stck_sym, stck_data in stock_syms.items():
+            stck_snpshts = stck_data["snapshots"]
+            if time_point_str not in stck_snpshts and stck_sym in data_to_fill:
+                stck_to_fill = data_to_fill[stck_sym]
+                new_obs.append(StockBuffer(
+                    stock = stck_to_fill["obj"],
+                    captured_at = temp_data_date,
+                    price_snapshot = stck_to_fill["price_snapshot"],
+                    change = stck_to_fill["change"],
+                    volume = stck_to_fill["volume"],
+                    bid_vol = stck_to_fill["bid_vol"],
+                    bid_price = stck_to_fill["bid_price"],
+                    offer_vol = stck_to_fill["offer_vol"],
+                    offer_price = stck_to_fill["offer_price"],
+                    open = stck_to_fill["open"],
+                    close = stck_to_fill["close"],
+                    high = stck_to_fill["high"],
+                    low = stck_to_fill["low"]
+                ))
+        StockBuffer.objects.bulk_create(new_obs)
+
+
 
     def create_working_days(self):
         # Create a list of working days within the date range

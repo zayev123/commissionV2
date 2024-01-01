@@ -24,17 +24,11 @@ class Forester:
             self.stock_index = self.stock_index - 1
 
     def act_random(self, best_acts = None, use_best_stks = False):
-        best_stks = [4, 79, 59, 17, 53, 54, 18, 24, 68, 95, 35, 80]
         rand_acts = np.zeros(self.no_of_stocks+1)
         random_actions = np.random.uniform(-1, 1, self.no_of_stocks+1)
         if best_acts is not None:
             for ind in range(len(best_acts)):
-                if self.stock_index:
-                    if ind != self.stock_index:
-                        best_acts[ind] = 10
-                elif ind+1 not in best_stks and use_best_stks:
-                    best_acts[ind] = 10
-                elif best_acts[ind] < 5:
+                if best_acts[ind] < 5:
                     best_acts[ind] = 0
                 elif best_acts[ind] < 10:
                     best_acts[ind] = 5
@@ -194,3 +188,5 @@ class Forester:
                 self.train_output.append(classified_output)
                 # print(self.train_input)
                 # print(self.train_output)
+
+    

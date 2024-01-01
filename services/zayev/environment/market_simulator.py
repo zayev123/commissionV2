@@ -566,4 +566,35 @@ class MarketSimulator(gym.Env):
                 return (False, f"indx, {indx} change != stock_state {change} != {new_stock_state[indx-1][0]}")
 
         return (True, "success")
+    
+    def get_mov_avg_actions(self):
+        target_date = self.the_current_time_step
+        stck_condition = self.stcks_buffer_df['captured_at'] == target_date
+        filtered_stck_df = self.stcks_buffer_df.loc[stck_condition]
+        # filtered_stck_df = filtered_stck_df[filtered_stck_df['id'] != 0]
+        stcks_buffer_df = filtered_stck_df.to_dict(orient='records')
+        acts = {}
+        for buff in stcks_buffer_df:
+            indx = buff["index"]
+            if indx not in acts:
+                o4_day_ma = buff["14_day_ma"]
+                curr_prc = buff["price_snapshot"]
+                if o4_day_ma != 0 and curr_prc != 0:
+                    chng = (curr_prc - o4_day_ma)/o4_day_ma
+                else:
+                    chng = 0
+                acts[indx] = chng
+                
+        
+        avg_acts = np.zeros(self.no_of_stocks)
+        for kindx, chng in acts.items():
+            avg_acts[kindx-1] = chng
+
+        min_range = -10
+        max_range = 10
+        scaled_array = np.interp(avg_acts, (avg_acts.min(), avg_acts.max()), (min_range, max_range))
+        scaled_array_plus_10 = scaled_array + 10
+        return scaled_array_plus_10
+
+
 
