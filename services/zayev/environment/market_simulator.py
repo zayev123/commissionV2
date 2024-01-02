@@ -498,6 +498,13 @@ class MarketSimulator(gym.Env):
 
         
 
+        print(f"stepping_b: {self.the_current_time_step} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {reward}")
+        if self.__print_output:
+            print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
+            print(self.stock_data)
+            print(self.shares_data)
+            print("")
+        
         if self.is_live:
             for dyIndx in range(1,4):
                 self.the_current_time_step: datetime = self.the_current_time_step + relativedelta(days=dyIndx)
@@ -528,12 +535,6 @@ class MarketSimulator(gym.Env):
 
         if self.__step_no > self.max_episode_steps:
             done = True
-
-        if self.__print_output:
-            print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
-            print(self.stock_data)
-            print(self.shares_data)
-            print("")
 
         return self.state, reward, done, info
     
@@ -617,7 +618,7 @@ class MarketSimulator(gym.Env):
             # if old_acts[kindx]*acts[kindx] < 0:
             #     wght = 5
             # else:
-            #     wght = 0
+            #     wght = 0.1
             avg_acts[kindx-1] = chng*wght
 
         # print("old_acts", old_acts)
