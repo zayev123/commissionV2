@@ -4,6 +4,7 @@ from apps.environment.models import (
     CommodityBuffer,
     Stock,
     StockBuffer,
+    Crypto, CryptoBuffer
 )
 
 # Register your models here.
@@ -56,3 +57,27 @@ class StockBufferAdmin(admin.ModelAdmin):
         'offer_price',
     ]
     search_fields = ['stock__name', 'captured_at']
+
+@admin.register(Crypto)
+class CryptoAdmin(admin.ModelAdmin):
+    list_display = [
+        'index', 
+        'id', 
+        "symbol",
+        'name', 
+        "type",
+    ]
+    search_fields = ['index', 'name', "type"]
+
+
+@admin.register(CryptoBuffer)
+class CryptoBufferAdmin(admin.ModelAdmin):
+    list_display = [
+        'captured_at',
+        'crypto', 
+        'id', 
+        'price_snapshot',
+        'change',
+        'volume',
+    ]
+    search_fields = ['crypto__name', 'captured_at']

@@ -4,6 +4,7 @@ from datetime import datetime, date
 from matplotlib.dates import relativedelta
 import pytz
 from apps.environment.models.commodity import Commodity, CommodityBuffer
+from apps.environment.models.crypto import Crypto, CryptoBuffer
 from apps.environment.models.stock import Stock, StockBuffer
 from psx import stocks
 import yfinance as yf
@@ -24,10 +25,11 @@ class DataTransformer:
         self.temp_data_date = env_config.get("temp_data_date", None)
         if self.temp_data_date:
             self.temp_data_date = pytz.utc.localize(datetime.strptime(str(self.temp_data_date), '%Y-%m-%d'))
-        self.added_days = 1500
+        self.added_days = 10
         rem_days = today - self.last_time_step
         if rem_days.days - 1500 <0:
             self.added_days = rem_days.days
+        self.is_crypto = env_config.get("is_crypto", False)
 
     @staticmethod
     def get_stk_snpshots():
@@ -55,6 +57,33 @@ class DataTransformer:
                     if not snp_data["last_date"]:
                         snp_data["last_date"] = snapshot.captured_at.date()
         return (all_stocks, stock_syms, snapshots)
+    
+    @staticmethod
+    def get_cryp_snpshots():
+        all_cryptos = Crypto.objects.all()
+
+        crypto_syms = {}
+
+        for a_crypto in all_cryptos:
+            if a_crypto.symbol not in crypto_syms:
+                crypto_syms[a_crypto.symbol] = {
+                    "object": a_crypto,
+                    "snapshots": {},
+                    "last_date": None
+                }
+
+        snapshots = CryptoBuffer.objects.select_related("crypto").all()
+        for snapshot in snapshots:
+            snp_crypt = snapshot.crypto
+            snp_crypt_symbl = snp_crypt.symbol
+            if snp_crypt_symbl in crypto_syms:
+                snp_data = crypto_syms[snp_crypt_symbl]
+                cryp_snps = snp_data["snapshots"]
+                if snapshot.captured_at not in cryp_snps:
+                    cryp_snps[snapshot.captured_at.strftime('%Y-%m-%d %H:%M:%S')] = snapshot
+                    if not snp_data["last_date"]:
+                        snp_data["last_date"] = snapshot.captured_at.date()
+        return (all_cryptos, crypto_syms, snapshots)
     
     @staticmethod
     def retreive_stocks_buffers():
@@ -113,6 +142,60 @@ class DataTransformer:
             # tst = tst + 1
             # if tst == 4:
             #     break
+
+    @staticmethod
+    def retreive_cryptos_buffers():
+        (all_cryptos, crypto_syms, snapshots) = DataTransformer.get_cryp_snpshots()
+
+        # tst = 1
+        for crypto_sym, crypt_data in crypto_syms.items():
+            new_snapshots = []
+            last_date: datetime = crypt_data["last_date"]
+            if last_date is None:
+                start_from = date(2020, 1, 1)
+            else:
+                start_from = last_date
+            end_date = pytz.utc.localize(datetime.now() + relativedelta(days=2)).date()
+            # start_from = date(2016, 1, 1)
+            # end_date = date(2020, 6, 1)
+            print(last_date, crypto_sym, start_from)
+            data = yf.download(crypto_sym, start=start_from, end=end_date)
+            data_points_len = len(data)
+            crypt_snpshts = crypt_data["snapshots"]
+            the_crypto: Crypto = crypt_data["object"]
+            last_data_point = None
+            for digi in range(data_points_len):
+                data_point = data.iloc[digi]
+                time_point = data_point.name.to_pydatetime()
+                time_point_str = data_point.name.strftime('%Y-%m-%d %H:%M:%S')
+                if time_point_str not in crypt_snpshts:
+                    zone_point_time = pytz.utc.localize(time_point)
+                    nw_price = data_point.Close
+                    if last_data_point is None:
+                        change = 0
+                    else:
+                        old_price = last_data_point.Close
+                        if old_price and old_price > 0:
+                            change = (nw_price-old_price)/old_price
+                        else:
+                            change = 0
+                    new_snapshots.append(CryptoBuffer(
+                        crypto = the_crypto,
+                        captured_at = zone_point_time,
+                        price_snapshot = nw_price,
+                        change = change,
+                        volume = data_point.Volume,
+                        bid_vol = 100000000,
+                        bid_price = nw_price,
+                        offer_vol = 100000000,
+                        offer_price = nw_price,
+                        open = data_point.Open,
+                        close = nw_price,
+                        high = data_point.High,
+                        low = data_point.Low
+                    ))
+                last_data_point = data_point
+            CryptoBuffer.objects.bulk_create(new_snapshots)
 
     @staticmethod
     def retreive_commodities_buffers():
@@ -192,23 +275,39 @@ class DataTransformer:
         db_conn = psycopg2.connect(**db_params)
         cursor = db_conn.cursor()
 
-        stcks_query = """
-            SELECT *
-            FROM stocks
-        """
+        if self.is_crypto:
+            stcks_query = """
+                SELECT *
+                FROM cryptos
+            """
+        else:
+            stcks_query = """
+                SELECT *
+                FROM stocks
+            """
         cursor.execute(stcks_query)
         stck_data = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
         self.stck_df = pd.DataFrame(stck_data, columns=column_names) 
         # stck_df = stck_df.to_dict(orient='records')
 
-        stcks_buffer_query = f"""
-            SELECT stocks_buffers.*, stocks.index
-            FROM stocks_buffers 
-            JOIN stocks on stocks.id = stocks_buffers.stock_id
-            WHERE 
-            captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
-        """
+        if self.is_crypto:
+            stcks_buffer_query = f"""
+                SELECT cryptos_buffers.*, cryptos.index
+                FROM cryptos_buffers 
+                JOIN cryptos on cryptos.id = cryptos_buffers.crypto_id
+                WHERE 
+                captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
+            """
+        else:
+            stcks_buffer_query = f"""
+                SELECT stocks_buffers.*, stocks.index
+                FROM stocks_buffers 
+                JOIN stocks on stocks.id = stocks_buffers.stock_id
+                WHERE 
+                captured_at >= '{str_time_step}' AND captured_at <= '{str_last_time_step}'
+            """
+        
         cursor.execute(stcks_buffer_query)
         stcks_buffer_data = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
@@ -272,8 +371,11 @@ class DataTransformer:
         self.cmmdties_df = pd.DataFrame(cmmdties_data, columns=column_names) 
 
     @staticmethod
-    def get_data_to_add(temp_data_date, temp_date_str):
-        unq_stcks = Stock.objects.all()
+    def get_data_to_add(temp_data_date, temp_date_str, is_crypto = False):
+        if is_crypto:
+            unq_stcks = Crypto.objects.all()
+        else:
+            unq_stcks = Stock.objects.all()
         unq_stcks_dict = {}
         for astck in unq_stcks:
             if astck.symbol not in unq_stcks_dict:
@@ -298,7 +400,10 @@ class DataTransformer:
             stck_to_add["bid_price"] = str(nw_data["CURRENT"]).replace(",", "")
             stck_to_add["offer_vol"] = 100000000.0
             stck_to_add["offer_price"] = str(nw_data["CURRENT"]).replace(",", "")
-            stck_to_add["stock_id"] = unq_stk.id
+            if is_crypto:
+                stck_to_add["crypto_id"] = unq_stk.id
+            else:
+                stck_to_add["stock_id"] = unq_stk.id
             stck_to_add["close"] = str(nw_data["CURRENT"]).replace(",", "")
             stck_to_add["high"] = str(nw_data["HIGH"]).replace(",", "")
             stck_to_add["low"] = str(nw_data["LOW"]).replace(",", "")
@@ -370,7 +475,10 @@ class DataTransformer:
 
     def populate_missing_stock_days(self):
 
-        stocks_fields_list = ["id", "price_snapshot", "volume", "bid_vol",	"bid_price", "offer_vol",	"offer_price",	"stock_id",	"close",	"high",	"low",	"open",]
+        if self.is_crypto:
+            stocks_fields_list = ["id", "price_snapshot", "volume", "bid_vol",	"bid_price", "offer_vol",	"offer_price",	"crypto_id",	"close",	"high",	"low",	"open",]
+        else:
+            stocks_fields_list = ["id", "price_snapshot", "volume", "bid_vol",	"bid_price", "offer_vol",	"offer_price",	"stock_id",	"close",	"high",	"low",	"open",]
 
         stcks_df1 = self.stcks_buffer_df
         stcks_df2 = self.stcks_working_day_df
@@ -435,7 +543,10 @@ class DataTransformer:
         self.stck_df.fillna(0, inplace=True)
         self.cmmdties_df.fillna(0, inplace=True)
         self.stcks_buffer_df.fillna(0, inplace=True)
-        self.stcks_buffer_df['14_day_ma'] = self.stcks_buffer_df.groupby('stock_id')['close'].rolling(window=14).mean().reset_index(level=0, drop=True)
+        if self.is_crypto:
+            self.stcks_buffer_df['x_day_ma'] = self.stcks_buffer_df.groupby('crypto_id')['price_snapshot'].rolling(window=14).mean().reset_index(level=0, drop=True)
+        else:
+            self.stcks_buffer_df['x_day_ma'] = self.stcks_buffer_df.groupby('stock_id')['price_snapshot'].rolling(window=14).mean().reset_index(level=0, drop=True)
         self.stcks_buffer_df.fillna(0, inplace=True)
         self.cmmdties_buffer_df.fillna(0, inplace=True)
         return [

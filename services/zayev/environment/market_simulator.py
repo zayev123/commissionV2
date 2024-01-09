@@ -32,6 +32,8 @@ class MarketSimulator(gym.Env):
         self.shares_data = {}
         self.change_in_shares = {}
         self.abs_change_in_shares = {}
+        self.is_new_month = False
+        self.total_added = 0
         self.reset()
         
     
@@ -332,8 +334,13 @@ class MarketSimulator(gym.Env):
     
     def step(self, action):
         # if the sign changes and a profit was made, then give it a reward, else dont do anything
+        add_amnt = 4000
+        self.wallet_state = self.wallet_state + add_amnt
+        self.total_added = self.total_added + add_amnt
         copied_action = copy.deepcopy(action)
         old_shares_data = copy.deepcopy(self.shares_data)
+        if self.is_new_month:
+            self.is_new_month = False
         # if self.is_live:
         #     for dyIndx in range(1,4):
         #         self.the_current_time_step: datetime = self.the_current_time_step + relativedelta(days=dyIndx)
@@ -363,6 +370,7 @@ class MarketSimulator(gym.Env):
         new_portfolio_value = 0
         # total_value_bought = 0
         # total_value_sold = 0
+        # print("wallet_balance", wallet_balance)
         penalty = 0
         new_shares = {}
         flagged = False
@@ -388,6 +396,7 @@ class MarketSimulator(gym.Env):
             old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
             current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
 
+        num_of_buys = 0
         for index in range(no_of_actions):
             data_index = index +1
             bid_vol = self.stock_data[data_index]["bid_vol"]
@@ -396,6 +405,7 @@ class MarketSimulator(gym.Env):
             bid_price = self.stock_data[data_index]["bid_price"]
             offer_price = self.stock_data[data_index]["offer_price"]
             if action_amount > 0:
+                num_of_buys = num_of_buys + 1
                 change_in_shares = action_amount/offer_price       
             else:
                 change_in_shares = action_amount/bid_price
@@ -404,11 +414,13 @@ class MarketSimulator(gym.Env):
             if self.__print_output:
                 print(f"change_in_shares for index: {index}", change_in_shares, current_no_of_shares, bid_vol)
 
+        selling_changes = {}
         if self.__print_output:
             print("nw_ports", current_portfolio_value)
             print("old_actions", copied_action)
             print("new_actions", action)
 
+        total_sold = 0
         for index in range(no_of_actions):
             data_index = index +1
             stck_price = self.stock_data[data_index]["price_snapshot"]
@@ -437,13 +449,24 @@ class MarketSimulator(gym.Env):
                     flagged = True
                     # if self.__print_output:
                     #     print("break_3")
-                    change_in_shares = -1*current_no_of_shares + 1
-                total_freed_capital = total_freed_capital + abs(change_in_shares)*bid_price
+                    change_in_shares = -1*current_no_of_shares
+                ########
+                change_in_shares = -1*current_no_of_shares
+                if data_index == 11:
+                    print("my_11th", change_in_shares)
+                ########
+                selling_changes[index] = change_in_shares
                 new_shares[index] = change_in_shares + current_no_of_shares
+                total_sold = total_sold + change_in_shares*bid_price
             
             if change_in_shares == 0:
                 new_shares[index] = current_no_of_shares
 
+        # print("selling_changes", selling_changes)
+        total_freed_capital = abs(total_sold) + wallet_balance
+        # print("total_sold", total_sold)
+        # print("total_freed_capital", total_freed_capital)
+        total_bought = 0
         for index in range(no_of_actions):
             data_index = index +1
             stck_price = self.stock_data[data_index]["price_snapshot"]
@@ -467,17 +490,25 @@ class MarketSimulator(gym.Env):
                     change_in_shares = offer_vol
                     
                 capital_locked = change_in_shares*offer_price
+                ########
+                capital_locked = total_freed_capital/num_of_buys
+                ########
                 if capital_locked > total_freed_capital:
                     penalty = penalty + total_freed_capital - capital_locked
                     capital_locked = total_freed_capital
                     # if self.__print_output:
                     #     print("crack_2")
+                
                 change_in_shares = capital_locked/offer_price
                 total_freed_capital = total_freed_capital - capital_locked
+                num_of_buys = num_of_buys - 1
 
                 # total_value_bought = total_value_bought + capital_locked*offer_price
             
                 new_shares[index] = change_in_shares + current_no_of_shares
+                total_bought = total_bought+change_in_shares*bid_price
+        
+        # print("total_bought", total_bought)
 
         if current_portfolio_value == 0:
             done = True
@@ -491,14 +522,22 @@ class MarketSimulator(gym.Env):
         new_portfolio_value = total_freed_capital
         for index in range(no_of_actions):
             data_index = index +1
-            if new_shares[index] <= 0:
-                new_shares[index] = 1
+            # if new_shares[index] <= 0:
+            #     new_shares[index] = 1
             self.shares_data[data_index] = new_shares[index]
             new_portfolio_value = new_portfolio_value + self.shares_data[data_index]*self.stock_data[data_index]["price_snapshot"]
 
         
 
+        if old_shares_data:
+            for shr_indx, shr_nmbrs in self.shares_data.items():
+                self.abs_change_in_shares[shr_indx] = self.shares_data[shr_indx] - old_shares_data[shr_indx]
+        total_sum = 0
+        for chng_shr_indx in self.abs_change_in_shares:
+            total_sum = total_sum + self.abs_change_in_shares[chng_shr_indx]*self.stock_data[chng_shr_indx]["price_snapshot"]
+        
         print(f"stepping_b: {self.the_current_time_step} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {reward}")
+        print("total_sum", total_sum)
         if self.__print_output:
             print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
             print(self.stock_data)
@@ -506,20 +545,21 @@ class MarketSimulator(gym.Env):
             print("")
         
         if self.is_live:
+            # curr_month = self.the_current_time_step.month
             for dyIndx in range(1,4):
                 self.the_current_time_step: datetime = self.the_current_time_step + relativedelta(days=dyIndx)
                 if self.the_current_time_step.weekday() not in [5, 6]:
                     break
+            # new_month = self.the_current_time_step.month
+            # if new_month> curr_month:
+            #     self.wallet_state = self.wallet_state + 50000
+            #     self.is_new_month = True
         else:
             self.the_current_time_step = self.the_current_time_step + relativedelta(hours=2, minutes=30)
         
         (stck_state, cmmdty_state, volume_state) = copy.deepcopy(self.get_the_state())
         self.state = (stck_state, cmmdty_state, volume_state)
         info = {}
-
-        if old_shares_data:
-            for shr_indx, shr_nmbrs in self.shares_data.items():
-                self.abs_change_in_shares[shr_indx] = self.shares_data[shr_indx] - old_shares_data[shr_indx]
 
         if self.is_test:
             (is_valid_output, output) = self.test_output_validity(
@@ -591,12 +631,14 @@ class MarketSimulator(gym.Env):
         for buff in stcks_buffer_df:
             indx = buff["index"]
             if indx not in acts:
-                o4_day_ma = buff["14_day_ma"]
+                o4_day_ma = buff["x_day_ma"]
                 curr_prc = buff["price_snapshot"]
                 if o4_day_ma != 0 and curr_prc != 0:
                     chng = (curr_prc - o4_day_ma)/o4_day_ma
                 else:
                     chng = 0
+                if indx == 29:
+                    print("my 29th", o4_day_ma, curr_prc, chng)
                 acts[indx] = chng
         return acts
 
@@ -604,8 +646,10 @@ class MarketSimulator(gym.Env):
     def get_mov_avg_actions(self):
         target_date = self.the_current_time_step
         acts = self.get_raw_acts(target_date)
+        # chsn_stks = [12, 25, 49, 69, 71, 82]
+        chsn_stks = [69]
         old_date = None
-        for dyIndx in range(1,4):
+        for dyIndx in range(1,6):
             old_date: datetime = target_date - relativedelta(days=dyIndx)
             if old_date.weekday() not in [5, 6]:
                 break
@@ -615,19 +659,36 @@ class MarketSimulator(gym.Env):
         avg_acts = np.zeros(self.no_of_stocks)
         for kindx, chng in acts.items():
             wght = 1
-            # if old_acts[kindx]*acts[kindx] < 0:
-            #     wght = 5
-            # else:
-            #     wght = 0.1
-            avg_acts[kindx-1] = chng*wght
+            old_act = old_acts[kindx]
+            new_act = acts[kindx]
+            if old_acts[kindx]*acts[kindx] < 0:
+                wght = wght
+                # print(kindx, chng)
+            else:
+                wght = 0
+            if kindx not in chsn_stks:
+                chng = -10
+            else:
+                if old_act*new_act < 0:
+                    if new_act>0:
+                        chng = 10
+                    else:
+                        chng = -10
+                else:
+                    chng = 0
 
-        # print("old_acts", old_acts)
-        # print("avg_acts", acts)
+            avg_acts[kindx-1] = chng
+            # avg_acts[kindx-1] = chng*wght
+
+        print("old_acts", old_acts)
+        print("acts", acts)
+        # print("avg_acts", avg_acts)
 
         min_val = -10
         max_val = 10
+        scaled_array = avg_acts
         # scaled_array = avg_acts * ((max_val - min_val) / (avg_acts.max() - avg_acts.min()))
-        scaled_array = (avg_acts - avg_acts.min()) / (avg_acts.max() - avg_acts.min()) * (max_val - min_val) + min_val
+        # scaled_array = (avg_acts - avg_acts.min()) / (avg_acts.max() - avg_acts.min()) * (max_val - min_val) + min_val
         scaled_array_plus_10 = scaled_array + 10
         return scaled_array_plus_10
 

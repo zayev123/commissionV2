@@ -26,6 +26,7 @@ class Forester:
     def act_random(self, best_acts = None, use_best_stks = False):
         rand_acts = np.zeros(self.no_of_stocks+1)
         random_actions = np.random.uniform(-1, 1, self.no_of_stocks+1)
+        random_actions = np.zeros
         if best_acts is not None:
             for ind in range(len(best_acts)):
                 if best_acts[ind] < 5:
