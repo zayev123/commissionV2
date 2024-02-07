@@ -1,7 +1,7 @@
 source xenv/bin/activate
 
 git remote add origin https://github.com/zayev123/tankx_plc.git
-git remote set-url origin https://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@github.com/zayev123/tankx_plc.git
+git remote set-url origin https://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@github.com/zayev123/commissionV2.git
 git remote set-url origin https://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@github.com/zayev123/tankx_plc.git
 
 git filter-repo --index-filter 'git rm -r --cached --ignore-unmatch data_extracter.ipynb' HEAD
