@@ -49,3 +49,15 @@ MTF=F
 NG=F
 PKR=X
 CT=F
+
+
+# 1. Stop PostgreSQL 
+brew services stop postgresql
+
+# 2. Delete the postmaster.pid
+rm -f /opt/homebrew/var/postgresql@12/postmaster.pid
+
+# 3. Start the PostgreSQL again
+brew services start postgresql
+
+make raw

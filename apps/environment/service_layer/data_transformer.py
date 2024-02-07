@@ -18,6 +18,7 @@ class DataTransformer:
         self.env_config = env_config
         the_current_time_step = env_config.get("the_current_time_step")
         self.max_epi_len = env_config.get("max_episode_steps")
+        self.num_of_stocks = env_config.get("no_of_stocks")
         last_time_step = the_current_time_step + relativedelta(days=self.max_epi_len)
         self.the_current_time_step = pytz.utc.localize(datetime.strptime(str(the_current_time_step), '%Y-%m-%d %H:%M:%S'))
         self.last_time_step = pytz.utc.localize(datetime.strptime(str(last_time_step), '%Y-%m-%d %H:%M:%S'))
@@ -93,6 +94,7 @@ class DataTransformer:
         for stck_sym, stck_data in stock_syms.items():
             new_snapshots = []
             last_date: datetime = stck_data["last_date"]
+            temp_from = date(2022, 1, 1)
             if last_date is None:
                 start_from = date(2020, 1, 1)
             else:
@@ -101,10 +103,13 @@ class DataTransformer:
             # start_from = date(2016, 1, 1)
             # end_date = date(2020, 6, 1)
             print(last_date, stck_sym, start_from)
+            the_stock: Stock = stck_data["object"]
+            # if start_from > temp_from:
+            # if the_stock.index < 190:
+            #     continue
             data = stocks(stck_sym, start=start_from, end=end_date)
             data_points_len = len(data)
             stck_snpshts = stck_data["snapshots"]
-            the_stock: Stock = stck_data["object"]
             last_data_point = None
             for digi in range(data_points_len):
                 data_point = data.iloc[digi]
@@ -450,7 +455,7 @@ class DataTransformer:
         working_days = pd.date_range(start=self.the_current_time_step, end=added_end_date, freq='B')
 
         # Repeat rows for each index from 1 to 100
-        stk_index_range = range(1, 101)
+        stk_index_range = range(1, self.num_of_stocks+1)
 
         # Create a DataFrame with the specified structure
         stcks_data = {'captured_at': [], 'change': [], 'index': []}
@@ -549,6 +554,16 @@ class DataTransformer:
             self.stcks_buffer_df['x_day_ma'] = self.stcks_buffer_df.groupby('stock_id')['price_snapshot'].rolling(window=14).mean().reset_index(level=0, drop=True)
         self.stcks_buffer_df.fillna(0, inplace=True)
         self.cmmdties_buffer_df.fillna(0, inplace=True)
+        self.stcks_buffer_df['captured_at'] = pd.to_datetime(self.stcks_buffer_df['captured_at'])
+
+        # Sort the DataFrame by 'crypto_id' and 'captured_at'
+        self.stcks_buffer_df.sort_values(by=['crypto_id', 'captured_at'], inplace=True)
+
+        self.stcks_buffer_df['price_snapshot_percentage_change'] = self.stcks_buffer_df.groupby('crypto_id')['price_snapshot'].pct_change() * 100
+
+        # Calculate the percentage change for 'x_day_ma' for each crypto_id
+        self.stcks_buffer_df['x_day_ma_percentage_change'] = self.stcks_buffer_df.groupby('crypto_id')['x_day_ma'].pct_change() * 100
+        self.stcks_buffer_df.fillna(0, inplace=True)
         return [
             self.stck_df,
             self.cmmdties_df,

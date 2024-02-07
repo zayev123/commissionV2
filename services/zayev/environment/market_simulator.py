@@ -11,6 +11,8 @@ import psycopg2
 import pandas as pd
 import pytz
 
+from services.zayev.models.market_signals import MarketSignal
+
 class MarketSimulator(gym.Env):
     def __init__(self, env_config: dict=None, data_frames = None):
         self.env_config = env_config
@@ -23,7 +25,7 @@ class MarketSimulator(gym.Env):
         self.max_episode_steps = self.env_config.get("max_episode_steps")
         self.__print_output = self.env_config.get("print_output")
         self.is_test = self.env_config.get("is_test", False)
-        self.__initial_balance = 100000
+        self.__initial_balance = 300
         self.action_space = self.__get_actn_shape()
         (stock_observation_space, commodity_observation_space, volumes_observation_space) = self.__get_obs_shape() 
         self.wallet_state = self.__initial_balance
@@ -34,6 +36,9 @@ class MarketSimulator(gym.Env):
         self.abs_change_in_shares = {}
         self.is_new_month = False
         self.total_added = 0
+        self.change_in_wallet_state = 0
+        self.buy_rates = {}
+        self.curr_signals = {}
         self.reset()
         
     
@@ -199,11 +204,7 @@ class MarketSimulator(gym.Env):
                 self.stock_data[d_stck["index"]] = d_stck
 
             if init:
-                available_per_stock = self.__initial_balance/5
-                if d_stck["price_snapshot"] == 0:
-                    self.shares_data[d_stck["index"]] = 0
-                else:
-                    self.shares_data[d_stck["index"]] = 3
+                self.shares_data[d_stck["index"]] = 0
 
         for a_stck in stcks_buffer_df:
             indx = a_stck["index"] -1
@@ -334,11 +335,26 @@ class MarketSimulator(gym.Env):
     
     def step(self, action):
         # if the sign changes and a profit was made, then give it a reward, else dont do anything
-        add_amnt = 4000
+        add_amnt = 4
         self.wallet_state = self.wallet_state + add_amnt
         self.total_added = self.total_added + add_amnt
+        no_of_actions = len(action)
+        no_of_actions = no_of_actions - 1
+        for index in range(no_of_actions):
+            data_index = index +1
+            stck_price = self.stock_data[data_index]["price_snapshot"]
+            if stck_price < 0.001:
+                # print("low_indx", index)
+                action[index] = 0
+            # if action[index] < 0 and data_index in self.buy_rates:
+            #     if self.stock_data[data_index]["price_snapshot"] < self.buy_rates[data_index]:
+            #         action[index] = 0
+        # print("my 32nd", self.stock_data[32]["crypto_id"], self.stock_data[32]["price_snapshot"])
+                
+
         copied_action = copy.deepcopy(action)
         old_shares_data = copy.deepcopy(self.shares_data)
+        old_wallet_state = self.wallet_state
         if self.is_new_month:
             self.is_new_month = False
         # if self.is_live:
@@ -358,8 +374,6 @@ class MarketSimulator(gym.Env):
             print(volume_state)
 
 
-        no_of_actions = len(action)
-        no_of_actions = no_of_actions - 1
         if self.preparing:
             wallet_balance = self.__initial_balance
         else:
@@ -390,13 +404,18 @@ class MarketSimulator(gym.Env):
             data_index = index +1
             stck_price = self.stock_data[data_index]["price_snapshot"]
             chng = self.stock_data[data_index]["change"]
-            old_stock_price = stck_price/(1+chng)
+            if (1+chng == 0):
+                old_stock_price = 0
+            else:
+                old_stock_price = stck_price/(1+chng)
             current_no_of_shares = self.shares_data[data_index]
 
             old_portfolio_value = old_portfolio_value + current_no_of_shares*old_stock_price
             current_portfolio_value = current_portfolio_value + current_no_of_shares*stck_price
 
+        # print("maxxy", max_indx, max_change)
         num_of_buys = 0
+        limit = 0.0000000001
         for index in range(no_of_actions):
             data_index = index +1
             bid_vol = self.stock_data[data_index]["bid_vol"]
@@ -404,7 +423,9 @@ class MarketSimulator(gym.Env):
 
             bid_price = self.stock_data[data_index]["bid_price"]
             offer_price = self.stock_data[data_index]["offer_price"]
-            if action_amount > 0:
+            if bid_price<limit:
+                action[index] = 0
+            elif action_amount > 0:
                 num_of_buys = num_of_buys + 1
                 change_in_shares = action_amount/offer_price       
             else:
@@ -430,7 +451,10 @@ class MarketSimulator(gym.Env):
             offer_vol = self.stock_data[data_index]["offer_vol"]
             offer_price = self.stock_data[data_index]["offer_price"]
             chng = self.stock_data[data_index]["change"]
-            old_stock_price = stck_price/(1+chng)
+            if chng == -1:
+                old_stock_price = 0
+            else:
+                old_stock_price = stck_price/(1+chng)
             current_no_of_shares = self.shares_data[data_index]
 
             change_in_shares = action[index]
@@ -452,8 +476,8 @@ class MarketSimulator(gym.Env):
                     change_in_shares = -1*current_no_of_shares
                 ########
                 change_in_shares = -1*current_no_of_shares
-                if data_index == 11:
-                    print("my_11th", change_in_shares)
+                # if data_index == 11:
+                #     print("my_11th", change_in_shares)
                 ########
                 selling_changes[index] = change_in_shares
                 new_shares[index] = change_in_shares + current_no_of_shares
@@ -476,7 +500,10 @@ class MarketSimulator(gym.Env):
             offer_vol = self.stock_data[data_index]["offer_vol"]
             offer_price = self.stock_data[data_index]["offer_price"]
             chng = self.stock_data[data_index]["change"]
-            old_stock_price = stck_price/(1+chng)
+            if chng == -1:
+                old_stock_price = 0
+            else:
+                old_stock_price = stck_price/(1+chng)
             current_no_of_shares = self.shares_data[data_index]
 
             change_in_shares = self.__get_action_change(action, index)
@@ -491,7 +518,7 @@ class MarketSimulator(gym.Env):
                     
                 capital_locked = change_in_shares*offer_price
                 ########
-                capital_locked = total_freed_capital/num_of_buys
+                # capital_locked = total_freed_capital/num_of_buys
                 ########
                 if capital_locked > total_freed_capital:
                     penalty = penalty + total_freed_capital - capital_locked
@@ -499,7 +526,10 @@ class MarketSimulator(gym.Env):
                     # if self.__print_output:
                     #     print("crack_2")
                 
-                change_in_shares = capital_locked/offer_price
+                if offer_price == 0:
+                    change_in_shares = 0
+                else:
+                    change_in_shares = capital_locked/offer_price
                 total_freed_capital = total_freed_capital - capital_locked
                 num_of_buys = num_of_buys - 1
 
@@ -532,12 +562,17 @@ class MarketSimulator(gym.Env):
         if old_shares_data:
             for shr_indx, shr_nmbrs in self.shares_data.items():
                 self.abs_change_in_shares[shr_indx] = self.shares_data[shr_indx] - old_shares_data[shr_indx]
+                if self.abs_change_in_shares[shr_indx]>0:
+                    self.buy_rates[shr_indx] = self.stock_data[shr_indx]["price_snapshot"]
+        
+        self.change_in_wallet_state = self.wallet_state - old_wallet_state
         total_sum = 0
         for chng_shr_indx in self.abs_change_in_shares:
             total_sum = total_sum + self.abs_change_in_shares[chng_shr_indx]*self.stock_data[chng_shr_indx]["price_snapshot"]
+
         
         print(f"stepping_b: {self.the_current_time_step} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {reward}")
-        print("total_sum", total_sum)
+        print("total_sum", total_sum, self.change_in_wallet_state)
         if self.__print_output:
             print(f"stepping_b: {flagged} {old_portfolio_value}, {current_portfolio_value}, {new_portfolio_value} {penalty} {reward}")
             print(self.stock_data)
@@ -637,10 +672,115 @@ class MarketSimulator(gym.Env):
                     chng = (curr_prc - o4_day_ma)/o4_day_ma
                 else:
                     chng = 0
-                if indx == 29:
-                    print("my 29th", o4_day_ma, curr_prc, chng)
+                # if indx == 29:
+                #     print("my 29th", o4_day_ma, curr_prc, chng)
                 acts[indx] = chng
         return acts
+    
+    def get_signals(self, old_dates: list):
+        signals = {}
+        reversed_dates = old_dates[::-1]
+        # reversed_dates = old_dates
+        # old_dates = old_dates
+        # print("my_old_dates", reversed_dates)
+        for an_old_date in reversed_dates:
+            stck_condition = self.stcks_buffer_df['captured_at'] == an_old_date
+            filtered_stck_df = self.stcks_buffer_df.loc[stck_condition]
+            # filtered_stck_df = filtered_stck_df[filtered_stck_df['id'] != 0]
+            stcks_buffer_df = filtered_stck_df.to_dict(orient='records')
+            for buff in stcks_buffer_df:
+                indx = buff["index"]
+                if indx not in signals:
+                    signals[indx] = []
+                mrkt_sgnl: MarketSignal = MarketSignal(
+                    an_old_date,
+                    buff["x_day_ma"],
+                    buff["x_day_ma_percentage_change"],
+                    buff["price_snapshot"],
+                    buff["price_snapshot_percentage_change"],
+                    copy.deepcopy(signals[indx]),
+                    indx
+                )
+                signals[indx].append(mrkt_sgnl)
+        return signals
+
+    def get_old_date(self, target_date):
+        old_date = None
+        for dyIndx in range(1,6):
+            old_date: datetime = target_date - relativedelta(days=dyIndx)
+            if old_date.weekday() not in [5, 6]:
+                break
+        return old_date
+    
+    def get_gradient_acts(self):
+        target_date = self.the_current_time_step
+        # chsn_stks = [12, 25, 49, 69, 71, 82]
+        num_of_old_dates = 6
+        curr_date = target_date
+        old_dates = [curr_date]
+        for i in range(num_of_old_dates):
+            new_old_date = self.get_old_date(curr_date)
+            old_dates.append(new_old_date)
+            curr_date = new_old_date
+
+        signals = self.get_signals(old_dates)
+        dict_signals = {}
+        for st_id, sgnks in signals.items():
+            dict_signals[st_id] = sgnks[-1].__dict__
+            # if st_id == 159:
+            #     print("yo", len(sgnks))
+            #     for sgnk in sgnks:
+            #         print(sgnk.date, sgnk.num_of_days_abv_moving_avg)
+            #         pass
+        self.curr_signals = dict_signals
+        # print("dict_signals", dict_signals)
+        
+        sgnl_acts = np.zeros(self.no_of_stocks)
+        for kindx, sgnls in signals.items():
+            num_of_sgnls = len(sgnls)
+            last_sgnl: MarketSignal = sgnls[num_of_sgnls-1]
+            scnd_last_sgnl: MarketSignal = sgnls[num_of_sgnls-2]
+            buy_weight = 0
+            sell_weight = 0
+            if scnd_last_sgnl.x_day_moving_avg_grad < 0 and last_sgnl.x_day_moving_avg_grad > 0:
+                buy_weight = buy_weight + 2
+            if last_sgnl.num_of_days_since_min_price>=3 or (last_sgnl.num_of_days_since_min_price>=2 and last_sgnl.mvng_avg_dist>0):
+                buy_weight = buy_weight + 2
+            elif last_sgnl.num_of_days_abv_moving_avg>=3:
+                buy_weight = buy_weight + 1
+            if last_sgnl.price_snapshot_grad >= 10:
+                buy_weight = buy_weight + 2
+
+            if scnd_last_sgnl.x_day_moving_avg_grad > 0 and last_sgnl.x_day_moving_avg_grad < 0:
+                sell_weight = sell_weight + 2
+            if last_sgnl.num_of_days_since_max_price>=3 or (last_sgnl.num_of_days_since_max_price>=2 and last_sgnl.mvng_avg_dist<0):
+                sell_weight = sell_weight+2
+            elif last_sgnl.num_of_days_blw_moving_avg>=3:
+                sell_weight = sell_weight + 1
+            if last_sgnl.price_snapshot_grad <= -10:
+                sell_weight = sell_weight + 2
+            
+            net_weight = buy_weight - sell_weight
+            if net_weight > 0:
+                net_weight = 10
+            elif net_weight < 0:
+                net_weight = -10
+            else:
+                net_weight = 0
+            sgnl_acts[kindx-1] = net_weight
+
+
+        # print("old_acts", old_acts)
+        # print("acts", acts)
+        # print("avg_acts", avg_acts)
+
+        min_val = -10
+        max_val = 10
+        scaled_array = sgnl_acts
+        # scaled_array = avg_acts * ((max_val - min_val) / (avg_acts.max() - avg_acts.min()))
+        # scaled_array = (avg_acts - avg_acts.min()) / (avg_acts.max() - avg_acts.min()) * (max_val - min_val) + min_val
+        scaled_array_plus_10 = scaled_array + 10
+        return scaled_array_plus_10
 
     
     def get_mov_avg_actions(self):
@@ -648,11 +788,7 @@ class MarketSimulator(gym.Env):
         acts = self.get_raw_acts(target_date)
         # chsn_stks = [12, 25, 49, 69, 71, 82]
         chsn_stks = [69]
-        old_date = None
-        for dyIndx in range(1,6):
-            old_date: datetime = target_date - relativedelta(days=dyIndx)
-            if old_date.weekday() not in [5, 6]:
-                break
+        old_date = self.get_old_date(target_date)
 
         old_acts =   self.get_raw_acts(old_date)              
         
@@ -666,22 +802,22 @@ class MarketSimulator(gym.Env):
                 # print(kindx, chng)
             else:
                 wght = 0
-            if kindx not in chsn_stks:
-                chng = -10
-            else:
-                if old_act*new_act < 0:
-                    if new_act>0:
-                        chng = 10
-                    else:
-                        chng = -10
+            # if kindx not in chsn_stks:
+            #     chng = -10
+            # else:
+            if old_act*new_act < 0:
+                if new_act>0:
+                    chng = 10
                 else:
-                    chng = 0
+                    chng = -10
+            else:
+                chng = 0
 
             avg_acts[kindx-1] = chng
             # avg_acts[kindx-1] = chng*wght
 
-        print("old_acts", old_acts)
-        print("acts", acts)
+        # print("old_acts", old_acts)
+        # print("acts", acts)
         # print("avg_acts", avg_acts)
 
         min_val = -10
